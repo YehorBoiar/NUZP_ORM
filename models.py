@@ -1,9 +1,9 @@
-import ORM
-import datatypes
-from model import ModelMeta
+from ORM.ORM import create_table
+from ORM.datatypes import CharField, DateTimeField
+from ORM.model import ModelMeta
 
 class Student(metaclass=ModelMeta):
-    name = datatypes.CharField(255)
-    bd = datatypes.DateTimeField()
+    name = CharField()
+    bd = DateTimeField()
 
-ORM.create_table(Student)
+create_table(Student)

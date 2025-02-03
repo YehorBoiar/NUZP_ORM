@@ -1,9 +1,13 @@
 import sqlite3
 
+import os
+
 
 def create_table(table_object):
+    if not os.path.exists('databases'):
+        os.makedirs('databases')
     table_name = table_object.__name__
-    connection_obj = sqlite3.connect(table_object.__name__)
+    connection_obj = sqlite3.connect('databases/' + table_object.__name__.lower() + '.sqlite3')
     
     for field_name, field in table_object._fields.items():
             print(f"{field_name} {field.db_type}")
