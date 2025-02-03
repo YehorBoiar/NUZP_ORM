@@ -1,5 +1,4 @@
 import sqlite3
-
 import os
 
 
@@ -96,3 +95,48 @@ def delete_entries(model_class, conditions):
     connection_obj.commit()
     print(f"Deleted entries from {model_class.__name__} where {conditions}")
     connection_obj.close()
+
+def replace_entries(model_class, conditions, new_values):
+    """
+    Updates (replaces) entries in the database table of a given model based on conditions.
+
+    :param model_class: The class (model) where entries should be updated.
+    :param conditions: A dictionary of conditions (e.g., {"name": "Alice"}) to match entries.
+    :param new_values: A dictionary of new values to update (e.g., {"bd": "2001-01-01"}).
+    """
+    if not hasattr(model_class, "_fields"):
+        raise ValueError(f"{model_class.__name__} is not a valid model class.")
+
+    # Ensure database exists
+    db_path = f"databases/{model_class.__name__.lower()}.sqlite3"
+    if not os.path.exists(db_path):
+        raise ValueError(f"Database for {model_class.__name__} does not exist!")
+
+    connection_obj = sqlite3.connect(db_path)
+    cursor_obj = connection_obj.cursor()
+
+    # Ensure there are conditions (to avoid updating all rows accidentally)
+    if not conditions:
+        print("Error: You must provide at least one condition to update specific rows.")
+        return
+
+    # Ensure there are values to update
+    if not new_values:
+        print("Error: No new values provided to update.")
+        return
+
+    # Construct the SET clause dynamically
+    set_clause = ", ".join([f"{field} = ?" for field in new_values.keys()])
+    where_clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
+
+    query = f"UPDATE {model_class.__name__.lower()} SET {set_clause} WHERE {where_clause}"
+    values = tuple(new_values.values()) + tuple(conditions.values())
+
+    try:
+        cursor_obj.execute(query, values)
+        connection_obj.commit()
+        print(f"Updated entries in {model_class.__name__} where {conditions} with {new_values}")
+    except Exception as e:
+        print(f"Error updating entries: {e}")
+    finally:
+        connection_obj.close()
