@@ -58,4 +58,41 @@ def insert_entries(model_class, entries):
     finally:
         connection_obj.close()
 
-    
+
+def delete_entries(model_class, conditions):
+    """
+    Deletes entries from the database table of a given model based on conditions.
+
+    :param model_class: The class (model) from which entries should be deleted.
+    :param conditions: A dictionary of conditions (e.g., {"name": "Alice"}) to match entries.
+    """
+    if not hasattr(model_class, "_fields"):
+        raise ValueError(f"{model_class.__name__} is not a valid model class.")
+
+    # Ensure database exists
+    db_path = f"databases/{model_class.__name__.lower()}.sqlite3"
+    if not os.path.exists(db_path):
+        raise ValueError(f"Database for {model_class.__name__} does not exist!")
+
+    connection_obj = sqlite3.connect(db_path)
+    cursor_obj = connection_obj.cursor()
+
+    # If no conditions are given, delete ALL rows (DANGEROUS!)
+    if not conditions:
+        confirmation = input(f"Are you sure you want to delete ALL records from {model_class.__name__}? (yes/no): ")
+        if confirmation.lower() == "no":
+            print("Deletion cancelled.")
+            return
+        query = f"DELETE FROM {model_class.__name__.lower()}"
+        cursor_obj.execute(query)
+    else:
+        # Construct the WHERE clause dynamically
+        where_clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
+        query = f"DELETE FROM {model_class.__name__.lower()} WHERE {where_clause}"
+        values = tuple(conditions.values())
+
+        cursor_obj.execute(query, values)
+
+    connection_obj.commit()
+    print(f"Deleted entries from {model_class.__name__} where {conditions}")
+    connection_obj.close()

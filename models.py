@@ -1,4 +1,4 @@
-from ORM.ORM import create_table, insert_entries
+from ORM.ORM import create_table, insert_entries, delete_entries
 from ORM.datatypes import CharField, DateTimeField
 from ORM.model import ModelMeta
 
@@ -14,3 +14,4 @@ class Student(metaclass=ModelMeta):
 
 create_table(Student)
 insert_entries(Student, students_to_add)
+delete_entries(Student, {"bd": "1999-05-15"})
