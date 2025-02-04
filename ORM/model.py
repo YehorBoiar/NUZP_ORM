@@ -2,6 +2,7 @@ from ORM.datatypes import Field
 import os
 import sqlite3
 
+DB_PATH = "databases/main.sqlite3"
 
 class ModelMeta(type):
     """
@@ -21,8 +22,9 @@ class BaseModel(metaclass=ModelMeta):
     def create_table(table_object):
         if not os.path.exists('databases'):
             os.makedirs('databases')
+
         table_name = table_object.__name__
-        connection_obj = sqlite3.connect('databases/' + table_object.__name__.lower() + '.sqlite3')
+        connection_obj = sqlite3.connect(DB_PATH)
         
         cursor_obj = connection_obj.cursor()
         fields_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT"]
@@ -35,6 +37,7 @@ class BaseModel(metaclass=ModelMeta):
         cursor_obj.execute(f"CREATE TABLE IF NOT EXISTS {table_object.__name__.lower()} ({', '.join(fields_sql)});")
         
         connection_obj.close()
+    
     @classmethod
     def insert_entries(self, entries):
         """
@@ -42,15 +45,10 @@ class BaseModel(metaclass=ModelMeta):
 
         :param entries: A list of dictionaries, where each dictionary represents a row.
         """
-        if not hasattr(self, "_fields"):
-            raise ValueError(f"{self.__name__} is not a valid model class.")
+        if not os.path.exists(DB_PATH):
+            raise ValueError(f"Database for {self.__name__} does not exist!")
 
-        # Ensure database and table exist
-        db_path = f"databases/{self.__name__.lower()}.sqlite3"
-        if not os.path.exists("databases"):
-            raise ValueError(f"Table {self.__name__} doesn't exist")
-
-        connection_obj = sqlite3.connect(db_path)
+        connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
 
         # Extract field names (excluding 'id' since it's auto-incremented)
@@ -80,15 +78,11 @@ class BaseModel(metaclass=ModelMeta):
         :param self: The class (model) from which entries should be deleted.
         :param conditions: A dictionary of conditions (e.g., {"name": "Alice"}) to match entries.
         """
-        if not hasattr(self, "_fields"):
-            raise ValueError(f"{self.__name__} is not a valid model class.")
-
         # Ensure database exists
-        db_path = f"databases/{self.__name__.lower()}.sqlite3"
-        if not os.path.exists(db_path):
+        if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {self.__name__} does not exist!")
 
-        connection_obj = sqlite3.connect(db_path)
+        connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
 
         # If no conditions are given, delete ALL rows (DANGEROUS!)
@@ -120,15 +114,10 @@ class BaseModel(metaclass=ModelMeta):
         :param conditions: A dictionary of conditions (e.g., {"name": "Alice"}) to match entries.
         :param new_values: A dictionary of new values to update (e.g., {"bd": "2001-01-01"}).
         """
-        if not hasattr(self, "_fields"):
-            raise ValueError(f"{self.__name__} is not a valid model class.")
-
-        # Ensure database exists
-        db_path = f"databases/{self.__name__.lower()}.sqlite3"
-        if not os.path.exists(db_path):
+        if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {self.__name__} does not exist!")
 
-        connection_obj = sqlite3.connect(db_path)
+        connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
 
         # Ensure there are conditions (to avoid updating all rows accidentally)
