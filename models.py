@@ -1,30 +1,40 @@
-from ORM.datatypes import CharField, DateTimeField
+from ORM.datatypes import Field, IntegerField, CharField
 from ORM.model import BaseModel
 
-class Student(BaseModel):
+class User(BaseModel):
     name = CharField()
-    bd = DateTimeField()
+    age = IntegerField()
 
-class Course(BaseModel):
-    title = CharField()
-    instructor = CharField()
+# Create the table (drops if exists, for demo)
+User.create_table()
 
-Student.create_table()
-Course.create_table()
+# Insert some entries
+User.insert_entries([
+    {"name": "Alice", "age": 30},
+    {"name": "Bob", "age": 25},
+    {"name": "Charlie", "age": 35},
+])
 
-students_to_add = [
-    {"name": "Alice", "bd": "2000-01-01"},
-    {"name": "Bob", "bd": "1999-05-15"},
-    {"name": "Charlie", "bd": "2001-12-22"},
-    {"name": "David", "bd": "1998-03-10"}
-]
+# Querying examples:
+# Get all users
+all_users = User.objects.all()
+print(all_users)
 
-Student.insert_entries(students_to_add)
+# Filter users by name
+alice = User.objects.filter(name="Alice").all()
+print(alice)
 
-courses_to_add = [
-    {"title": "Math 101", "instructor": "Dr. Smith"},
-    {"title": "History 202", "instructor": "Prof. Johnson"},
-    {"title": "Physics 303", "instructor": "Dr. Brown"}
-]
+# Get a single record (raises error if not exactly one match)
+try:
+    bob = User.objects.get(name="Bob")
+    print(bob)
+except Exception as e:
+    print(e)
 
-Course.insert_entries(courses_to_add)
+# Order results
+ordered_users = User.objects.order_by("-age").all()
+print(ordered_users)
+
+# Slicing (e.g., get the first two users)
+first_two = User.objects.all()[0:2]
+print(first_two)
