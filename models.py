@@ -1,40 +1,65 @@
 from ORM.datatypes import Field, IntegerField, CharField
-from ORM.model import BaseModel
+from ORM.model import * 
 
-class User(BaseModel):
+# Import the necessary classes from your ORM
+class Author(BaseModel):
     name = CharField()
-    age = IntegerField()
 
-# Create the table (drops if exists, for demo)
-User.create_table()
+class Book(BaseModel):
+    title = CharField()
+    author = ForeignKey(Author)  # One-to-Many: A book belongs to one author
 
-# Insert some entries
-User.insert_entries([
-    {"name": "Alice", "age": 30},
-    {"name": "Bob", "age": 25},
-    {"name": "Charlie", "age": 35},
+class Tag(BaseModel):
+    name = CharField()
+
+class BookTag(BaseModel):
+    book = ForeignKey(Book)  # Many-to-Many Relationship via an explicit join table
+    tag = ForeignKey(Tag)
+
+# Create the database tables
+Author.create_table()
+Book.create_table()
+Tag.create_table()
+BookTag.create_table()
+
+
+# Insert authors
+Author.insert_entries([
+    {"name": "J.K. Rowling"},
+    {"name": "George Orwell"}
 ])
 
-# Querying examples:
-# Get all users
-all_users = User.objects.all()
-print(all_users)
+# Insert books (associating them with authors)
+author1 = Author.objects.get(name="J.K. Rowling")
+author2 = Author.objects.get(name="George Orwell")
 
-# Filter users by name
-alice = User.objects.filter(name="Alice").all()
-print(alice)
+Book.insert_entries([
+    {"title": "Harry Potter and the Sorcerer's Stone", "author": author1['id']},
+    {"title": "Harry Potter and the Chamber of Secrets", "author": author1['id']},
+    {"title": "1984", "author": author2['id']},
+    {"title": "Animal Farm", "author": author2['id']}
+])
 
-# Get a single record (raises error if not exactly one match)
-try:
-    bob = User.objects.get(name="Bob")
-    print(bob)
-except Exception as e:
-    print(e)
+# Insert tags
+Tag.insert_entries([
+    {"name": "Fantasy"},
+    {"name": "Dystopian"},
+    {"name": "Classic"}
+])
 
-# Order results
-ordered_users = User.objects.order_by("-age").all()
-print(ordered_users)
+# Retrieve books and tags to use in the BookTag (join table)
+book1 = Book.objects.get(title="Harry Potter and the Sorcerer's Stone")
+book2 = Book.objects.get(title="1984")
 
-# Slicing (e.g., get the first two users)
-first_two = User.objects.all()[0:2]
-print(first_two)
+tag1 = Tag.objects.get(name="Fantasy")
+tag2 = Tag.objects.get(name="Dystopian")
+
+# Create many-to-many relationships manually using the join table
+BookTag.insert_entries([
+    {"book": book1['id'], "tag": tag1['id']},  # "Harry Potter" -> Fantasy
+    {"book": book2['id'], "tag": tag2['id']}   # "1984" -> Dystopian
+])
+
+authors = Author.objects.all()
+print("Authors:", authors)
+

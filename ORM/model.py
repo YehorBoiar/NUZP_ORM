@@ -4,32 +4,160 @@ import sqlite3
 
 DB_PATH = "databases/main.sqlite3"
 
+# ====================================================
+# 1. Extend the metaclass to capture relationship fields
+# ====================================================
+
 class ModelMeta(type):
     """
-    Metaclass to register model fields.
+    Metaclass to register model fields including relationships.
     """
     def __new__(cls, name, bases, attrs):
         fields = {}
-        for attr_name, attr_value in attrs.items():
+        m2m_fields = {}
+        for attr_name, attr_value in list(attrs.items()):
             if isinstance(attr_value, Field):
                 fields[attr_name] = attr_value
-
+            elif isinstance(attr_value, ManyToManyField):
+                m2m_fields[attr_name] = attr_value
         attrs["_fields"] = fields
-        return super().__new__(cls, name, bases, attrs)
+        attrs["_m2m_fields"] = m2m_fields
+        new_class = super().__new__(cls, name, bases, attrs)
+        # Contribute each ManyToManyField to the class (as a descriptor)
+        for m2m_name, m2m_field in m2m_fields.items():
+            m2m_field.contribute_to_class(new_class, m2m_name)
+        return new_class
 
-# ----------------------------
-# QuerySet: Build and execute queries
-# ----------------------------
+# ====================================================
+# 2. Relationship Field Types
+# ====================================================
+
+class ForeignKey(Field):
+    """
+    Implements a one-to-many relationship (the "many" side).
+    In the database, we store the related object's id as an INTEGER.
+    """
+    def __init__(self, to, **kwargs):
+        self.to = to  # the target model class
+        super().__init__("INTEGER", **kwargs)
+
+class OneToOneField(ForeignKey):
+    """
+    Implements a one-to-one relationship.
+    This is just a ForeignKey with a UNIQUE constraint.
+    """
+    def __init__(self, to, **kwargs):
+        kwargs.setdefault('unique', True)
+        super().__init__(to, **kwargs)
+
+class ManyToManyField:
+    """
+    Implements a many-to-many relationship.
+    No column is created on the model's own table; an intermediate join table is used.
+    """
+    def __init__(self, to):
+        self.to = to  # the target model class
+        self.name = None  # will be set when the field is attached to the model
+
+    def contribute_to_class(self, cls, name):
+        self.name = name
+        self.model = cls
+        # Replace the attribute with a descriptor
+        setattr(cls, name, ManyToManyDescriptor(self))
+
+# ====================================================
+# 3. Many-to-Many Descriptor and Manager
+# ====================================================
+
+class ManyToManyDescriptor:
+    """
+    When you access the many-to-many field on an instance,
+    this descriptor returns a ManyToManyManager.
+    """
+    def __init__(self, m2m_field):
+        self.m2m_field = m2m_field
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return ManyToManyManager(instance, self.m2m_field)
+
+class ManyToManyManager:
+    """
+    Handles many-to-many operations (querying, adding, etc.) via a join table.
+    """
+    def __init__(self, instance, m2m_field):
+        self.instance = instance  # e.g., a dict representing the source row
+        self.m2m_field = m2m_field
+
+    def get_join_table_name(self):
+        # For example, if self.instance is of class "Book" and the field is "authors"
+        # and the related model is "Author", we name the join table: book_authors_author.
+        source_table = self.instance.__class__.__name__.lower()
+        target_table = self.m2m_field.to.__name__.lower()
+        return f"{source_table}_{self.m2m_field.name}_{target_table}"
+
+    def create_join_table(self):
+        join_table = self.get_join_table_name()
+        source_table = self.instance.__class__.__name__.lower()
+        target_table = self.m2m_field.to.__name__.lower()
+        connection_obj = sqlite3.connect(DB_PATH)
+        cursor = connection_obj.cursor()
+        # Simple join table with two INTEGER columns
+        create_sql = f"""
+        CREATE TABLE IF NOT EXISTS {join_table} (
+            {source_table}_id INTEGER,
+            {target_table}_id INTEGER
+        );
+        """
+        cursor.execute(create_sql)
+        connection_obj.commit()
+        connection_obj.close()
+
+    def add(self, *objs):
+        """
+        Add relationships between self.instance and the provided objects.
+        (It is assumed that each related object has been inserted and has an 'id'.)
+        """
+        self.create_join_table()
+        join_table = self.get_join_table_name()
+        source_table = self.instance.__class__.__name__.lower()
+        target_table = self.m2m_field.to.__name__.lower()
+        connection_obj = sqlite3.connect(DB_PATH)
+        cursor = connection_obj.cursor()
+        for obj in objs:
+            # Here we assume that both self.instance and obj are dict-like (with an 'id' key).
+            query = f"INSERT INTO {join_table} ({source_table}_id, {target_table}_id) VALUES (?, ?)"
+            cursor.execute(query, (self.instance['id'], obj['id']))
+        connection_obj.commit()
+        connection_obj.close()
+
+    def all(self):
+        """
+        Retrieve all related objects.
+        """
+        join_table = self.get_join_table_name()
+        source_table = self.instance.__class__.__name__.lower()
+        target_table = self.m2m_field.to.__name__.lower()
+        connection_obj = sqlite3.connect(DB_PATH)
+        cursor = connection_obj.cursor()
+        query = f"""
+        SELECT t.* FROM {target_table} t
+        JOIN {join_table} j ON t.id = j.{target_table}_id
+        WHERE j.{source_table}_id = ?
+        """
+        cursor.execute(query, (self.instance['id'],))
+        column_names = [desc[0] for desc in cursor.description]
+        results = [dict(zip(column_names, row)) for row in cursor.fetchall()]
+        connection_obj.close()
+        return results
+
+# ====================================================
+# 4. QuerySet and Manager (unchanged from before)
+# ====================================================
+
 class QuerySet:
     def __init__(self, model, where_clause=None, parameters=None, order_clause=None, limit_val=None, offset_val=None):
-        """
-        :param model: The model class (e.g. User)
-        :param where_clause: A SQL string for the WHERE clause.
-        :param parameters: A list of parameters for parameterized queries.
-        :param order_clause: A SQL string for ORDER BY.
-        :param limit_val: Limit value.
-        :param offset_val: Offset value.
-        """
         self.model = model
         self.where_clause = where_clause
         self.parameters = parameters if parameters is not None else []
@@ -53,22 +181,15 @@ class QuerySet:
         query = self._build_query()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        # Debug: print("Executing query:", query, self.parameters)
         cursor_obj.execute(query, tuple(self.parameters))
-        # Get column names from the description
         column_names = [desc[0] for desc in cursor_obj.description]
         results = [dict(zip(column_names, row)) for row in cursor_obj.fetchall()]
         connection_obj.close()
         return results
 
     def filter(self, **conditions):
-        """
-        Add filtering conditions.
-        Example: .filter(name="Alice", age=25)
-        """
         clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
         params = list(conditions.values())
-        # If there is already a WHERE clause, combine with AND.
         if self.where_clause:
             new_clause = f"({self.where_clause}) AND ({clause})"
             new_params = self.parameters + params
@@ -78,9 +199,6 @@ class QuerySet:
         return QuerySet(self.model, new_clause, new_params, self.order_clause, self.limit_val, self.offset_val)
 
     def get(self, **conditions):
-        """
-        Returns a single record. Raises an exception if no record or multiple records are found.
-        """
         qs = self.filter(**conditions).limit(2)
         results = qs._execute()
         if len(results) == 0:
@@ -90,10 +208,6 @@ class QuerySet:
         return results[0]
 
     def order_by(self, *fields):
-        """
-        Specify ordering. Example: .order_by("name") or .order_by("name", "-age")
-        (A '-' prefix can be used to indicate descending order.)
-        """
         order_clause = []
         for field in fields:
             if field.startswith("-"):
@@ -103,28 +217,21 @@ class QuerySet:
         return QuerySet(self.model, self.where_clause, self.parameters, ", ".join(order_clause), self.limit_val, self.offset_val)
 
     def limit(self, limit_val):
-        """Limit the number of returned records."""
         return QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, limit_val, self.offset_val)
 
     def offset(self, offset_val):
-        """Skip a given number of records."""
         return QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, self.limit_val, offset_val)
 
     def all(self):
-        """Execute the query and return all results as a list of dicts."""
         return self._execute()
 
     def __iter__(self):
         return iter(self._execute())
 
     def __getitem__(self, index):
-        # Allow slicing (e.g., qs[2:5])
         if isinstance(index, slice):
             offset = index.start if index.start is not None else 0
-            if index.stop is not None:
-                limit_val = index.stop - offset
-            else:
-                limit_val = None
+            limit_val = index.stop - offset if index.stop is not None else None
             qs = QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, limit_val, offset)
             return qs._execute()
         elif isinstance(index, int):
@@ -136,13 +243,13 @@ class QuerySet:
         else:
             raise TypeError("Invalid argument type.")
 
-# ----------------------------
-# Manager: Provides the starting point for queries
-# ----------------------------
 class Manager:
     def __get__(self, instance, owner):
         self.model = owner
         return self
+
+    def __getattr__(self, attr):
+        return getattr(QuerySet(self.model), attr)
 
     def all(self):
         return QuerySet(self.model)
@@ -153,52 +260,62 @@ class Manager:
     def get(self, **conditions):
         return QuerySet(self.model).get(**conditions)
 
-    def order_by(self, *fields):
-        return QuerySet(self.model).order_by(*fields)
+# ====================================================
+# 5. BaseModel: Create tables, insert data, etc.
+# ====================================================
 
-# ----------------------------
-# BaseModel: Includes CRUD and table creation methods.
-# Now, every model will also have an "objects" attribute for querying.
-# ----------------------------
 class BaseModel(metaclass=ModelMeta):
-    # Attach the default manager
     objects = Manager()
 
     @classmethod
     def create_table(cls):
         if not os.path.exists('databases'):
             os.makedirs('databases')
-
         table_name = cls.__name__.lower()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
         fields_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT"]
         for field_name, field in cls._fields.items():
-            fields_sql.append(f"{field_name} {field.db_type}")
-
-        # For demo purposes, drop the table first
+            if isinstance(field, (ForeignKey, OneToOneField)):
+                # Store foreign keys as "<field_name>_id"
+                column_name = field_name + "_id"
+                fields_sql.append(f"{column_name} {field.db_type}")
+            else:
+                fields_sql.append(f"{field_name} {field.db_type}")
+        # ManyToManyFields do not create a column in this table.
         cursor_obj.execute(f"DROP TABLE IF EXISTS {table_name}")
         cursor_obj.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});")
         connection_obj.close()
 
     @classmethod
     def insert_entries(cls, entries):
-        """
-        Inserts multiple entries (rows) into the database table.
-        :param entries: A list of dictionaries.
-        """
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
-
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-
-        field_names = list(cls._fields.keys())
+        field_names = []
+        for field_name, field in cls._fields.items():
+            if isinstance(field, (ForeignKey, OneToOneField)):
+                field_names.append(field_name + "_id")
+            else:
+                field_names.append(field_name)
         placeholders = ", ".join(["?" for _ in field_names])
         columns = ", ".join(field_names)
         query = f"INSERT INTO {cls.__name__.lower()} ({columns}) VALUES ({placeholders})"
-        values = [tuple(entry[field] for field in field_names) for entry in entries]
-
+        values = []
+        for entry in entries:
+            row = []
+            for field_name, field in cls._fields.items():
+                if isinstance(field, (ForeignKey, OneToOneField)):
+                    # Expecting that the related object is inserted and its id is available.
+                    value = entry[field_name]
+                    if isinstance(value, dict):
+                        row.append(value['id'])
+                    else:
+                        row.append(value)
+                else:
+                    row.append(entry[field_name])
+            values.append(tuple(row))
         try:
             cursor_obj.executemany(query, values)
             connection_obj.commit()
@@ -210,16 +327,10 @@ class BaseModel(metaclass=ModelMeta):
 
     @classmethod
     def delete_entries(cls, conditions):
-        """
-        Deletes entries from the database based on conditions.
-        :param conditions: A dictionary of conditions (e.g., {"name": "Alice"}).
-        """
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
-
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-
         if not conditions:
             confirmation = input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ")
             if confirmation.lower() == "no":
@@ -232,37 +343,26 @@ class BaseModel(metaclass=ModelMeta):
             query = f"DELETE FROM {cls.__name__.lower()} WHERE {where_clause}"
             values = tuple(conditions.values())
             cursor_obj.execute(query, values)
-
         connection_obj.commit()
         print(f"Deleted entries from {cls.__name__} where {conditions}")
         connection_obj.close()
 
     @classmethod
     def replace_entries(cls, conditions, new_values):
-        """
-        Updates entries based on conditions.
-        :param conditions: A dictionary to match rows.
-        :param new_values: A dictionary of new values.
-        """
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
-
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-
         if not conditions:
             print("Error: You must provide at least one condition to update specific rows.")
             return
-
         if not new_values:
             print("Error: No new values provided to update.")
             return
-
         set_clause = ", ".join([f"{field} = ?" for field in new_values.keys()])
         where_clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
         query = f"UPDATE {cls.__name__.lower()} SET {set_clause} WHERE {where_clause}"
         values = tuple(new_values.values()) + tuple(conditions.values())
-
         try:
             cursor_obj.execute(query, values)
             connection_obj.commit()
