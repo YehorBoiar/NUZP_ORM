@@ -152,12 +152,58 @@ class ManyToManyManager:
         connection_obj.close()
         return results
 
-# ====================================================
-# 4. QuerySet and Manager (unchanged from before)
-# ====================================================
-
 class QuerySet:
+    """
+    A QuerySet represents a collection of database queries for a specific model.
+    It allows you to build and execute SQL queries in a Pythonic way, with support
+    for filtering, ordering, limiting, and offsetting results.
+
+    Attributes:
+        model (class): The model class associated with this QuerySet.
+        where_clause (str): The SQL WHERE clause for filtering results.
+        parameters (list): The parameters to be used in the WHERE clause.
+        order_clause (str): The SQL ORDER BY clause for sorting results.
+        limit_val (int): The maximum number of results to return.
+        offset_val (int): The number of results to skip before returning.
+
+    Methods:
+        filter(**conditions): Adds conditions to the WHERE clause to filter results.
+        get(**conditions): Returns a single record matching the conditions or raises an exception.
+        order_by(*fields): Specifies the order in which results should be returned.
+        limit(limit_val): Limits the number of results returned.
+        offset(offset_val): Specifies the number of results to skip.
+        all(): Executes the query and returns all results.
+        __iter__(): Allows iteration over the results.
+        __getitem__(index): Retrieves a specific result or slice of results.
+
+    Example Usage:
+        # Assuming `User` is a model class representing a database table.
+
+        # Get all users
+        users = QuerySet(User).all()
+
+        # Filter users by age and order by name
+        users = QuerySet(User).filter(age=25).order_by("name")
+
+        # Get a single user by ID
+        user = QuerySet(User).get(id=1)
+
+        # Get the first 10 users, skipping the first 5
+        users = QuerySet(User).limit(10).offset(5).all()
+    """
+
     def __init__(self, model, where_clause=None, parameters=None, order_clause=None, limit_val=None, offset_val=None):
+        """
+        Initializes a new QuerySet instance.
+
+        Args:
+            model (class): The model class associated with this QuerySet.
+            where_clause (str, optional): The SQL WHERE clause for filtering results.
+            parameters (list, optional): The parameters to be used in the WHERE clause.
+            order_clause (str, optional): The SQL ORDER BY clause for sorting results.
+            limit_val (int, optional): The maximum number of results to return.
+            offset_val (int, optional): The number of results to skip before returning.
+        """
         self.model = model
         self.where_clause = where_clause
         self.parameters = parameters if parameters is not None else []
@@ -166,6 +212,12 @@ class QuerySet:
         self.offset_val = offset_val
 
     def _build_query(self):
+        """
+        Builds the SQL query based on the current state of the QuerySet.
+
+        Returns:
+            str: The constructed SQL query.
+        """
         query = f"SELECT * FROM {self.model.__name__.lower()}"
         if self.where_clause:
             query += " WHERE " + self.where_clause
@@ -178,6 +230,12 @@ class QuerySet:
         return query
 
     def _execute(self):
+        """
+        Executes the constructed SQL query and returns the results.
+
+        Returns:
+            list: A list of dictionaries, where each dictionary represents a row in the result set.
+        """
         query = self._build_query()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
@@ -188,6 +246,15 @@ class QuerySet:
         return results
 
     def filter(self, **conditions):
+        """
+        Adds conditions to the WHERE clause to filter the results.
+
+        Args:
+            **conditions: Keyword arguments representing the field names and values to filter by.
+
+        Returns:
+            QuerySet: A new QuerySet instance with the added filter conditions.
+        """
         clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
         params = list(conditions.values())
         if self.where_clause:
@@ -199,6 +266,18 @@ class QuerySet:
         return QuerySet(self.model, new_clause, new_params, self.order_clause, self.limit_val, self.offset_val)
 
     def get(self, **conditions):
+        """
+        Returns a single record matching the specified conditions.
+
+        Args:
+            **conditions: Keyword arguments representing the field names and values to filter by.
+
+        Returns:
+            dict: A dictionary representing the matching record.
+
+        Raises:
+            Exception: If no matching record is found or if multiple records are found.
+        """
         qs = self.filter(**conditions).limit(2)
         results = qs._execute()
         if len(results) == 0:
@@ -208,6 +287,15 @@ class QuerySet:
         return results[0]
 
     def order_by(self, *fields):
+        """
+        Specifies the order in which results should be returned.
+
+        Args:
+            *fields: Field names to order by. Prefix a field with "-" to sort in descending order.
+
+        Returns:
+            QuerySet: A new QuerySet instance with the specified order.
+        """
         order_clause = []
         for field in fields:
             if field.startswith("-"):
@@ -217,18 +305,61 @@ class QuerySet:
         return QuerySet(self.model, self.where_clause, self.parameters, ", ".join(order_clause), self.limit_val, self.offset_val)
 
     def limit(self, limit_val):
+        """
+        Limits the number of results returned.
+
+        Args:
+            limit_val (int): The maximum number of results to return.
+
+        Returns:
+            QuerySet: A new QuerySet instance with the specified limit.
+        """
         return QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, limit_val, self.offset_val)
 
     def offset(self, offset_val):
+        """
+        Specifies the number of results to skip before returning.
+
+        Args:
+            offset_val (int): The number of results to skip.
+
+        Returns:
+            QuerySet: A new QuerySet instance with the specified offset.
+        """
         return QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, self.limit_val, offset_val)
 
     def all(self):
+        """
+        Executes the query and returns all results.
+
+        Returns:
+            list: A list of dictionaries, where each dictionary represents a row in the result set.
+        """
         return self._execute()
 
     def __iter__(self):
+        """
+        Allows iteration over the results.
+
+        Returns:
+            iter: An iterator over the results.
+        """
         return iter(self._execute())
 
     def __getitem__(self, index):
+        """
+        Retrieves a specific result or slice of results.
+
+        Args:
+            index (int or slice): The index or slice to retrieve.
+
+        Returns:
+            dict or list: A dictionary representing a single result or a list of dictionaries.
+
+        Raises:
+            IndexError: If the index is out of range.
+            TypeError: If the index is not an integer or slice.
+        """
         if isinstance(index, slice):
             offset = index.start if index.start is not None else 0
             limit_val = index.stop - offset if index.stop is not None else None
