@@ -1,4 +1,4 @@
-from ORM.datatypes import Field, IntegerField, CharField
+from ORM.datatypes import CharField
 from ORM.model import * 
 
 # Import the necessary classes from your ORM
@@ -61,5 +61,23 @@ BookTag.insert_entries([
 ])
 
 authors = Author.objects.all()
-print("Authors:", authors)
+for i in authors:
+    print(i)
+    
+author = Author.objects.get(name="J.K. Rowling")
+books = Book.objects.filter(author_id=author["id"])
+for book in books:
+    print(book)
 
+book = Book.objects.get(title="Harry Potter and the Sorcerer's Stone")
+book_tags = BookTag.objects.filter(book_id=book['id'])
+for book_tag in book_tags:
+    tag = Tag.objects.get(id=book_tag['id'])
+    print(tag)
+    
+tag = Tag.objects.get(name="Fantasy")
+book_tags = BookTag.objects.filter(id=tag['id'])
+for book_tag in book_tags:
+    book = Book.objects.get(id=book_tag['id'])
+    print(book)
+    
