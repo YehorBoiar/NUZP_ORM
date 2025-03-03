@@ -10,7 +10,26 @@ class Student(model.BaseModel):
     full_name = datatypes.CharField()
     degree = datatypes.CharField()
 
+class Course(model.BaseModel):
+    name = datatypes.CharField()
+        
 class TestCreateTable(unittest.TestCase):
+    """
+    A test case class to verify the creation and schema of the 'student' table in the SQLite database.
+
+    This class contains methods to test the following:
+    1. Whether the 'student' table exists in the database after creation.
+    2. Whether the schema of the 'student' table matches the expected schema, including column names and data types.
+    3. Whether the table is correctly populated with initial data entries.
+
+    The `setUpClass` method is used to initialize the database and create the 'student' table before any tests are run.
+    The `tearDownClass` method is used to clean up the database after all tests have been executed.
+
+    Methods:
+    - `test_table_exists`: Verifies that the 'student' table exists in the database.
+    - `test_table_schema`: Verifies that the schema of the 'student' table matches the expected schema.
+    - `test_populate_schema`: Verifies that the table is correctly populated with the expected initial data entries.
+    """
     @classmethod
     def setUpClass(cls):
         """Set up the database and create the table before running tests."""
@@ -75,6 +94,37 @@ class TestCreateTable(unittest.TestCase):
             os.remove(DB_PATH)
         if os.path.exists('databases'):
             os.rmdir('databases')
+
+class TestConnectionsTable(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        """Set up the database and create the table before running tests."""
+        if not os.path.exists('databases'):
+            os.makedirs('databases')
+        Student.create_table()
+
+        Student.insert_entries([
+            {"full_name": "Yehor Boiar", "degree": "Computer Science"},
+            {"full_name": "Anastasia Martison", "degree": "Computer Science"}
+        ])
+
+    def test_many_to_many_connections(self):
+        """Test M2M relationship join table creation and queries."""
+
+        Student.create_table()
+        Course.create_table()
+        
+        
+        Course.insert_entries([{"name": "Math"}])
+        student = Student.objects.get(name="Yehor Boiar")
+        
+        
+        # Verify join table exists and has entries
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%student_courses%'")
+            self.assertTrue(cursor.fetchone())
+
 
 if __name__ == '__main__':
     unittest.main() 
