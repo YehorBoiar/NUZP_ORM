@@ -15,13 +15,17 @@ class ModelMeta(type):
     def __new__(cls, name, bases, attrs):
         fields = {}
         m2m_fields = {}
+        o2o_fields = {}
         for attr_name, attr_value in list(attrs.items()):
             if isinstance(attr_value, Field):
                 fields[attr_name] = attr_value
             elif isinstance(attr_value, ManyToManyField):
                 m2m_fields[attr_name] = attr_value
+            elif isinstance(attr_name, OneToOneField):
+                o2o_fields[attr_name] = attr_value
         attrs["_fields"] = fields
         attrs["_m2m_fields"] = m2m_fields
+        attrs["_o2o_feilds"] = o2o_fields
         new_class = super().__new__(cls, name, bases, attrs)
         # Contribute each ManyToManyField to the class (as a descriptor)
         for m2m_name, m2m_field in m2m_fields.items():
@@ -405,7 +409,7 @@ class BaseModel(metaclass=ModelMeta):
         table_name = cls.__name__.lower()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        fields_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT"]
+        fields_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL"]
         for field_name, field in cls._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
                 # Store foreign keys as "<field_name>_id"
