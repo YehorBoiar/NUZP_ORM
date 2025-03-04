@@ -230,7 +230,10 @@ class QuerySet:
         if self.limit_val is not None:
             query += f" LIMIT {self.limit_val}"
         if self.offset_val is not None:
-            query += f" OFFSET {self.offset_val}"
+            if(query.__contains__("LIMIT")):
+                query += f" OFFSET {self.offset_val}"
+            else:
+                query += f" LIMIT -1 OFFSET {self.offset_val}"
         return query
 
     def _execute(self):
@@ -252,23 +255,73 @@ class QuerySet:
     def filter(self, **conditions):
         """
         Adds conditions to the WHERE clause to filter the results.
+        Supports lookup operators like __exact, __like, __gt, etc.
 
         Args:
-            **conditions: Keyword arguments representing the field names and values to filter by.
+            **conditions: Keyword arguments representing field lookups and values.
 
         Returns:
-            QuerySet: A new QuerySet instance with the added filter conditions.
-        """
-        clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
-        params = list(conditions.values())
-        if self.where_clause:
-            new_clause = f"({self.where_clause}) AND ({clause})"
-            new_params = self.parameters + params
-        else:
-            new_clause = clause
-            new_params = params
-        return QuerySet(self.model, new_clause, new_params, self.order_clause, self.limit_val, self.offset_val)
+            QuerySet: A new QuerySet instance with the combined filter conditions.
 
+        Example:
+            .filter(name__like='John%', age__gt=21)
+            → WHERE name LIKE 'John%' AND age > 21
+        """
+        clauses = []
+        params = []
+        
+        # Parse conditions and build SQL clauses
+        for key, value in conditions.items():
+            # Split field and lookup operator
+            parts = key.split('__', 1)
+            field = parts[0]
+            lookup = parts[1] if len(parts) > 1 else 'exact'
+
+            # Handle different lookup types
+            if lookup == 'exact':
+                clause = f"{field} = ?"
+            elif lookup == 'like':
+                clause = f"{field} LIKE ?"
+            elif lookup == 'gt':
+                clause = f"{field} > ?"
+            elif lookup == 'gte':
+                clause = f"{field} >= ?"
+            elif lookup == 'lt':
+                clause = f"{field} < ?"
+            elif lookup == 'lte':
+                clause = f"{field} <= ?"
+            elif lookup == 'in':
+                placeholders = ', '.join(['?'] * len(value))
+                clause = f"{field} IN ({placeholders})"
+                params.extend(value)
+            elif lookup == 'neq':
+                clause = f"{field} != ?"
+            else:
+                raise ValueError(f"Invalid lookup operator: {lookup}")
+
+            # Add value to params (unless handled by IN clause)
+            if lookup != 'in':
+                params.append(value)
+
+            clauses.append(clause)
+
+        # Combine with existing WHERE clause
+        new_where = " AND ".join(clauses)
+        if self.where_clause:
+            new_where = f"({self.where_clause}) AND ({new_where})"
+
+        # Combine parameters
+        new_params = self.parameters + params
+
+        return QuerySet(
+            model=self.model,
+            where_clause=new_where,
+            parameters=new_params,
+            order_clause=self.order_clause,
+            limit_val=self.limit_val,
+            offset_val=self.offset_val
+        )
+        
     def get(self, **conditions):
         """
         Returns a single record matching the specified conditions.
@@ -385,15 +438,12 @@ class Manager:
 
     def __getattr__(self, attr):
         return getattr(QuerySet(self.model), attr)
+    
+    def __getitem__(self, index):
+        return QuerySet(self.model)[index]
 
-    def all(self):
-        return QuerySet(self.model)
-
-    def filter(self, **conditions):
-        return QuerySet(self.model).filter(**conditions)
-
-    def get(self, **conditions):
-        return QuerySet(self.model).get(**conditions)
+    def __iter__(self):
+        return QuerySet(self.model).__iter__()
 
 # ====================================================
 # 5. BaseModel: Create tables, insert data, etc.
