@@ -1,6 +1,6 @@
 class Field:
     """Represents a database field."""
-    def __init__(self, db_type, null=True):
+    def __init__(self, db_type, null=True, unique=False):
         """
         Initialize a field.
 
@@ -9,11 +9,16 @@ class Field:
         """
         self.db_type = db_type
         self.null = null
+        self.unique = unique
 
     def get_db_type(self):
         """Return the full database type, including NOT NULL if applicable."""
         if not self.null:
             return f"{self.db_type} NOT NULL"
+        if self.unique and self.null:
+            return f"{self.db_type} UNIQUE"
+        if self.unique and not self.null:
+            return f"{self.db_type} NOT NULL UNIQUE"
         return self.db_type
 
 

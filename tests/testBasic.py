@@ -163,7 +163,8 @@ class TestCreateTable(unittest.TestCase):
     def test_large_offset(self):
         result = Student.objects.offset(100).all()
         self.assertEqual(result, [])
-        
+    
+    # TODO: Ensure sql_injection_safety work
     def test_sql_injection_safety(self):
         with self.assertRaises(Exception):
             # Attempt to inject SQL via a field value

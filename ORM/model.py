@@ -19,17 +19,12 @@ class ModelMeta(type):
         for attr_name, attr_value in list(attrs.items()):
             if isinstance(attr_value, Field):
                 fields[attr_name] = attr_value
-            elif isinstance(attr_value, ManyToManyField):
-                m2m_fields[attr_name] = attr_value
-            elif isinstance(attr_name, OneToOneField):
-                o2o_fields[attr_name] = attr_value
+        #     elif isinstance(attr_value, ManyToManyField):
+        #         m2m_fields[attr_name] = attr_value
         attrs["_fields"] = fields
-        attrs["_m2m_fields"] = m2m_fields
-        attrs["_o2o_feilds"] = o2o_fields
+        # attrs["_m2m_fields"] = m2m_fields
         new_class = super().__new__(cls, name, bases, attrs)
-        # Contribute each ManyToManyField to the class (as a descriptor)
-        for m2m_name, m2m_field in m2m_fields.items():
-            m2m_field.contribute_to_class(new_class, m2m_name)
+
         return new_class
 
 # ====================================================
@@ -107,6 +102,10 @@ class ManyToManyManager:
         target_table = self.m2m_field.to.__name__.lower()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor = connection_obj.cursor()
+        
+        # Enable foreign keys for this connection
+        cursor.execute("PRAGMA foreign_keys = ON")
+        
         # Simple join table with two INTEGER columns
         create_sql = f"""
         CREATE TABLE IF NOT EXISTS {join_table} (
@@ -129,6 +128,10 @@ class ManyToManyManager:
         target_table = self.m2m_field.to.__name__.lower()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor = connection_obj.cursor()
+        
+        # Enable foreign keys for this connection
+        cursor.execute("PRAGMA foreign_keys = ON")
+        
         for obj in objs:
             # Here we assume that both self.instance and obj are dict-like (with an 'id' key).
             query = f"INSERT INTO {join_table} ({source_table}_id, {target_table}_id) VALUES (?, ?)"
@@ -145,6 +148,10 @@ class ManyToManyManager:
         target_table = self.m2m_field.to.__name__.lower()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor = connection_obj.cursor()
+        
+        # Enable foreign keys for this connection
+        cursor.execute("PRAGMA foreign_keys = ON")
+        
         query = f"""
         SELECT t.* FROM {target_table} t
         JOIN {join_table} j ON t.id = j.{target_table}_id
@@ -464,7 +471,8 @@ class BaseModel(metaclass=ModelMeta):
             if isinstance(field, (ForeignKey, OneToOneField)):
                 # Store foreign keys as "<field_name>_id"
                 column_name = field_name + "_id"
-                fields_sql.append(f"{column_name} {field.db_type}")
+                ref_table = field.to.__name__.lower() # get referenced table 
+                fields_sql.append(f"{column_name} {field.db_type} REFERENCES {ref_table}(id) ON DELETE CASCADE") # delete everything if id deleted 
             else:
                 fields_sql.append(f"{field_name} {field.db_type}")
         # ManyToManyFields do not create a column in this table.
@@ -478,6 +486,7 @@ class BaseModel(metaclass=ModelMeta):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
+        cursor_obj.execute("PRAGMA foreign_keys = ON;")
         field_names = []
         for field_name, field in cls._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
@@ -506,7 +515,7 @@ class BaseModel(metaclass=ModelMeta):
             connection_obj.commit()
             print(f"Successfully inserted {len(entries)} entries into {cls.__name__}")
         except Exception as e:
-            print(f"Error inserting entries: {e}")
+            raise
         finally:
             connection_obj.close()
 
@@ -516,6 +525,7 @@ class BaseModel(metaclass=ModelMeta):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
+        cursor_obj.execute("PRAGMA foreign_keys = ON;") 
         if not conditions:
             confirmation = input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ")
             if confirmation.lower() == "no":
@@ -538,6 +548,7 @@ class BaseModel(metaclass=ModelMeta):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
+        cursor_obj.execute("PRAGMA foreign_keys = ON;") 
         if not conditions:
             print("Error: You must provide at least one condition to update specific rows.")
             return
