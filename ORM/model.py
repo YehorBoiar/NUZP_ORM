@@ -488,27 +488,38 @@ class BaseModel(metaclass=ModelMeta):
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute("PRAGMA foreign_keys = ON;")
         field_names = []
+        
         for field_name, field in cls._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
                 field_names.append(field_name + "_id")
             else:
                 field_names.append(field_name)
+
         placeholders = ", ".join(["?" for _ in field_names])
         columns = ", ".join(field_names)
         query = f"INSERT INTO {cls.__name__.lower()} ({columns}) VALUES ({placeholders})"
         values = []
         for entry in entries:
             row = []
+            
             for field_name, field in cls._fields.items():
-                if isinstance(field, (ForeignKey, OneToOneField)):
-                    # Expecting that the related object is inserted and its id is available.
+                if isinstance(field, ForeignKey) or isinstance(field, OneToOneField):
                     value = entry[field_name]
                     if isinstance(value, dict):
-                        row.append(value['id'])
+                        related_id = value.get('id')
                     else:
-                        row.append(value)
+                        related_id = value
+                    
+                    if isinstance(field, OneToOneField):
+                        check_query = f"SELECT COUNT(*) FROM {cls.__name__.lower()} WHERE {field_name}_id = ?"
+                        cursor_obj.execute(check_query, (related_id,))
+                        if cursor_obj.fetchone()[0] > 0:
+                            raise ValueError(f"Duplicate entry detected for {field_name} (OneToOneField) with id {related_id}")
+
+                    row.append(related_id)
                 else:
                     row.append(entry[field_name])
+            
             values.append(tuple(row))
         try:
             cursor_obj.executemany(query, values)
@@ -520,27 +531,31 @@ class BaseModel(metaclass=ModelMeta):
             connection_obj.close()
 
     @classmethod
-    def delete_entries(cls, conditions):
+    def delete_entries(cls, conditions, confirm=False):
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
+        
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute("PRAGMA foreign_keys = ON;") 
+        
         if not conditions:
-            confirmation = input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ")
-            if confirmation.lower() == "no":
+            if confirm or input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ").lower() == "yes":
+                query = f"DELETE FROM {cls.__name__.lower()}"
+                cursor_obj.execute(query)
+            else:
                 print("Deletion cancelled.")
                 return
-            query = f"DELETE FROM {cls.__name__.lower()}"
-            cursor_obj.execute(query)
         else:
             where_clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
             query = f"DELETE FROM {cls.__name__.lower()} WHERE {where_clause}"
             values = tuple(conditions.values())
             cursor_obj.execute(query, values)
+
         connection_obj.commit()
         print(f"Deleted entries from {cls.__name__} where {conditions}")
         connection_obj.close()
+
 
     @classmethod
     def replace_entries(cls, conditions, new_values):

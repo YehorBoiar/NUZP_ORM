@@ -62,29 +62,30 @@ class TestOneToManyRelationship(unittest.TestCase):
         
 
 class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Create tables
+    def setUp(self):
+        # Ensure tables exist before deleting entries
         Customers.create_table()
         ContactInfo.create_table()
 
-        # Insert multiple customers
+        # Skip confirmation prompt in tests
+        Customers.delete_entries({}, confirm=True)
+        ContactInfo.delete_entries({}, confirm=True)
+
+        # Insert test data
         Customers.insert_entries([
             {"name": "Yehor", "age": 18},
             {"name": "Alice", "age": 25},
             {"name": "Bob", "age": 30},
         ])
+        self.yehor = Customers.objects.get(name="Yehor")
+        self.alice = Customers.objects.get(name="Alice")
+        self.bob = Customers.objects.get(name="Bob")
 
-        # Fetch customers
-        yehor = Customers.objects.get(name="Yehor")
-        alice = Customers.objects.get(name="Alice")
-        bob = Customers.objects.get(name="Bob")
-
-        # Insert contact info for some customers
         ContactInfo.insert_entries([
-            {"phone": "123-456-7890", "city": "New York", "customer": yehor["id"]},
-            {"phone": "987-654-3210", "city": "Los Angeles", "customer": alice["id"]},
+            {"phone": "123-456-7890", "city": "New York", "customer": self.yehor["id"]},
+            {"phone": "987-654-3210", "city": "Los Angeles", "customer": self.alice["id"]},
         ])
+
 
     def test_multiple_customers_with_contact_info(self):
         # Fetch all customers and their contact info
@@ -116,13 +117,13 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
             ContactInfo.insert_entries([{"phone": "555-555-5555", "city": "Chicago", "customer": 999}])  # Invalid customer ID
 
-    # def test_duplicate_contact_info_for_customer(self):
-    #     # Fetch Yehor
-    #     yehor = Customers.objects.get(name="Yehor")
-
-    #     # Attempt to insert another contact info for Yehor
-    #     with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
-    #         ContactInfo.insert_entries([{"phone": "111-222-3333", "city": "San Francisco", "customer": yehor["id"]}])
+    def test_duplicate_contact_info_for_customer(self):
+        # Fetch Yehor
+        yehor = Customers.objects.get(name="Yehor")
+ 
+        # Attempt to insert another contact info for Yehor
+        with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
+            ContactInfo.insert_entries([{"phone": "111-222-3333", "city": "San Francisco", "customer": yehor["id"]}])
 
     def test_updating_contact_info(self):
         # Fetch Yehor and his contact info
@@ -137,26 +138,26 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         self.assertEqual(updated_contact["phone"], "999-999-9999")
         self.assertEqual(updated_contact["city"], "Boston")
 
-    # def test_deleting_customer_cascades_to_contact_info(self):
-    #     # Fetch Alice and her contact info
-    #     alice = Customers.objects.get(name="Alice")
-    #     alice_contact = ContactInfo.objects.get(customer_id=alice["id"])
+    def test_deleting_customer_cascades_to_contact_info(self):
+        # Fetch Alice and her contact info
+        alice = Customers.objects.get(name="Alice")
+        alice_contact = ContactInfo.objects.get(customer_id=alice["id"])
 
-    #     # Delete Alice
-    #     Customers.delete_entries({'id':alice["id"]}) 
-    #     # fix : passing a dictionnary 
+        # Delete Alice
+        Customers.delete_entries({'id':alice["id"]}) 
+        # fix : passing a dictionnary 
 
-    #     # Ensure Alice's contact info is also deleted
-    #     with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
-    #         ContactInfo.objects.get(id=alice_contact["id"])
+        # Ensure Alice's contact info is also deleted
+        with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
+            ContactInfo.objects.get(id=alice_contact["id"])
 
-    # @classmethod
-    # def tearDownClass(cls):
-    #     """Clean up the database after tests."""
-    #     if os.path.exists(DB_PATH):
-    #         os.remove(DB_PATH)
-    #     if os.path.exists('databases'):
-    #         os.rmdir('databases')
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up the database after tests."""
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        if os.path.exists('databases'):
+            os.rmdir('databases')
 
 if __name__ == '__main__':
     unittest.main()
