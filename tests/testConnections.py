@@ -1,7 +1,7 @@
 import unittest
 from ORM import model, datatypes
 import os
-
+import sqlite3
 
 DB_PATH = "databases/main.sqlite3"
 
@@ -17,7 +17,15 @@ class ContactInfo(model.BaseModel):
 class Orders(model.BaseModel):
     item = datatypes.CharField()
     customer = model.ForeignKey(to=Customers) 
-    
+
+class Author(model.BaseModel):
+    name = datatypes.CharField()
+
+class Book(model.BaseModel):
+    title = datatypes.CharField()
+    authors = model.ManyToManyField(to=Author)
+
+
 class TestOneToManyRelationship(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
