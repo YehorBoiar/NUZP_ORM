@@ -1,6 +1,7 @@
 from ORM.datatypes import Field
 import os
 import sqlite3
+import re
 
 DB_PATH = "databases/main.sqlite3"
 
@@ -248,6 +249,15 @@ class QuerySet:
         connection_obj.close()
         return results
 
+    def sanitize_field_name(self, field_name):
+        """
+        Sanitizes a field name to ensure it is a valid SQL identifier.
+        Raises ValueError if the field name is invalid.
+        """
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", field_name):
+            raise ValueError(f"Invalid field name: {field_name}")
+        return field_name
+    
     def filter(self, **conditions):
         """
         Adds conditions to the WHERE clause to filter the results.
@@ -273,6 +283,11 @@ class QuerySet:
             field = parts[0]
             lookup = parts[1] if len(parts) > 1 else 'exact'
 
+            try:
+                field = self.sanitize_field_name(field)
+            except ValueError as e:
+                raise ValueError(f"Invalid field name in condition: {key}") from e
+        
             # Handle different lookup types
             if lookup == 'exact':
                 clause = f"{field} = ?"

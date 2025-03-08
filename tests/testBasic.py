@@ -10,7 +10,7 @@ from ORM import model, datatypes
 DB_PATH = "databases/main.sqlite3"
 
 class Student(model.BaseModel):
-    full_name = datatypes.CharField()
+    name = datatypes.CharField()
     degree = datatypes.CharField()
 
 class TestCreateTable(unittest.TestCase):
@@ -38,8 +38,8 @@ class TestCreateTable(unittest.TestCase):
         Student.create_table()
 
         Student.insert_entries([
-            {"full_name": "Yehor Boiar", "degree": "Computer Science"},
-            {"full_name": "Anastasia Martison", "degree": "Computer Science"}
+            {"name": "Yehor Boiar", "degree": "Computer Science"},
+            {"name": "Anastasia Martison", "degree": "Computer Science"}
         ])
 
 
@@ -67,7 +67,7 @@ class TestCreateTable(unittest.TestCase):
         # Expected schema
         expected_columns = [
             (0, 'id', 'INTEGER', 1, None, 1),  # Primary key
-            (1, 'full_name', 'TEXT', 0, None, 0),
+            (1, 'name', 'TEXT', 0, None, 0),
             (2, 'degree', 'TEXT', 0, None, 0)
         ]
         self.assertEqual(columns, expected_columns, "Table schema does not match expected schema.")
@@ -88,35 +88,35 @@ class TestCreateTable(unittest.TestCase):
         connection.close()
 
     def test_slicing(self):
-        self.assertEqual({'id': 1, 'full_name': 'Yehor Boiar', 'degree': 'Computer Science'}, Student.objects[0], "First entry of students table doesn't match the slice")
+        self.assertEqual({'id': 1, 'name': 'Yehor Boiar', 'degree': 'Computer Science'}, Student.objects[0], "First entry of students table doesn't match the slice")
         
         self.assertEqual([
-            {'id': 1, "full_name": "Yehor Boiar", "degree": "Computer Science"},
-            {'id': 2, "full_name": "Anastasia Martison", "degree": "Computer Science"}
+            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"},
+            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
         ], Student.objects[:2], "First entry of students table doesn't match the slice")
     
     def test_iter(self):
         iter_objects = [
-            {'id': 1, "full_name": "Yehor Boiar", "degree": "Computer Science"},
-            {'id': 2, "full_name": "Anastasia Martison", "degree": "Computer Science"}
+            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"},
+            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
         ]
         for i,j in enumerate(Student.objects.__iter__()):
             self.assertEqual(iter_objects[i], j)
 
     def test_all(self):
         expected = [
-            {'id': 1, "full_name": "Yehor Boiar", "degree": "Computer Science"},
-            {'id': 2, "full_name": "Anastasia Martison", "degree": "Computer Science"}
+            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"},
+            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
         ]
         self.assertEqual(Student.objects.all(), expected, "All() did not return expected results")
 
     def test_filter(self):
-        expected = [{'id': 1, "full_name": "Yehor Boiar", "degree": "Computer Science"}]
-        result = Student.objects.filter(full_name="Yehor Boiar").all()
+        expected = [{'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"}]
+        result = Student.objects.filter(name="Yehor Boiar").all()
         self.assertEqual(result, expected, "Filter() did not return expected results")
 
     def test_get(self):
-        expected = {'id': 2, "full_name": "Anastasia Martison", "degree": "Computer Science"}
+        expected = {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
         result = Student.objects.get(id=2)
         self.assertEqual(result, expected, "Get() did not return the correct record")
 
@@ -132,31 +132,31 @@ class TestCreateTable(unittest.TestCase):
 
     def test_order_by(self):
         expected = [
-            {'id': 2, "full_name": "Anastasia Martison", "degree": "Computer Science"},
-            {'id': 1, "full_name": "Yehor Boiar", "degree": "Computer Science"}
+            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"},
+            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"}
         ]
         result = Student.objects.order_by("-id").all()
         self.assertEqual(result, expected, "Order_by() did not sort results correctly")
 
     def test_limit(self):
-        expected = [{'id': 1, "full_name": "Yehor Boiar", "degree": "Computer Science"}]
+        expected = [{'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"}]
         result = Student.objects.limit(1).all()
         self.assertEqual(result, expected, "Limit() did not return correct number of records")
 
     def test_offset(self):
-        expected = [{'id': 2, "full_name": "Anastasia Martison", "degree": "Computer Science"}]
+        expected = [{'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}]
         result = Student.objects.offset(1).all()
         self.assertEqual(result, expected, "Offset() did not return expected result")
 
     def test_chained_operations(self):
         result = Student.objects.filter(degree="Computer Science").order_by("-id").limit(1).offset(1).all()
-        expected = [{'id': 1, 'full_name': 'Yehor Boiar', 'degree': 'Computer Science'}]
+        expected = [{'id': 1, 'name': 'Yehor Boiar', 'degree': 'Computer Science'}]
         self.assertEqual(result, expected)
     
     def test_complex_filter(self):
         # Test multiple WHERE conditions
-        result = Student.objects.filter(degree="Computer Science", full_name__like="Y%").all()
-        expected = [{'id': 1, 'full_name': 'Yehor Boiar', 'degree': 'Computer Science'}]
+        result = Student.objects.filter(degree="Computer Science", name__like="Y%").all()
+        expected = [{'id': 1, 'name': 'Yehor Boiar', 'degree': 'Computer Science'}]
         self.assertEqual(result, expected)
         
     def test_limit_zero(self):
@@ -167,11 +167,21 @@ class TestCreateTable(unittest.TestCase):
         result = Student.objects.offset(100).all()
         self.assertEqual(result, [])
     
-    # TODO: Ensure sql_injection_safety work
     def test_sql_injection_safety(self):
-        with self.assertRaises(Exception):
-            # Attempt to inject SQL via a field value
-            Student.objects.filter(full_name="'; DROP TABLE student; --").all()
+        """
+        Test that SQL injection attempts are safely handled.
+        """
+        # Attempt to inject SQL via a field value
+        results = Student.objects.filter(name__exact="'; DROP TABLE student; --").all()
+        self.assertEqual(len(results), 0)  # Ensure no results are returned
+
+        # Attempt to inject SQL via a field name
+        with self.assertRaises(ValueError):
+            Student.objects.filter(**{"invalid_field; DROP TABLE student; --": "value"}).all()
+
+        # Attempt to use an invalid lookup operator
+        with self.assertRaises(ValueError):
+            Student.objects.filter(name__invalid_lookup="value").all()
     
     @classmethod
     def tearDownClass(cls):
