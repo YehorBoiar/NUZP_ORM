@@ -38,16 +38,28 @@ class ManyToManyField:
     def add(self, source_class, source_dict, target_dict):
         """
         Add a relationship between two records (represented as dictionaries).
-        If the relationship already exists, it will be skipped.
+        If the relationship already exists or the target record is invalid, it will be skipped.
         """
         # Determine the junction table name
         source_class_name = source_class.__name__.lower()
         target_class_name = self.to.__name__.lower()
         junction_table = self.through or f"{source_class_name}_{target_class_name}"
 
-        # Check if the relationship already exists
+        # Check if the target record exists in the target table
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
+        cursor_obj.execute(f"""
+            SELECT 1 FROM {target_class_name}
+            WHERE id = ?
+        """, (target_dict["id"],))
+        target_exists = cursor_obj.fetchone()
+
+        if not target_exists:
+            # Target record does not exist, so we skip the insertion
+            connection_obj.close()
+            raise ValueError(f"Target record with id={target_dict['id']} does not exist in {target_class_name} table.")
+
+        # Check if the relationship already exists in the junction table
         cursor_obj.execute(f"""
             SELECT 1 FROM {junction_table}
             WHERE {source_class_name}_id = ? AND {target_class_name}_id = ?
@@ -228,6 +240,7 @@ class QuerySet:
         """
         query = self._build_query()
         connection_obj = sqlite3.connect(DB_PATH)
+        connection_obj.execute("PRAGMA foreign_keys = ON;")
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute(query, tuple(self.parameters))
         column_names = [desc[0] for desc in cursor_obj.description]
