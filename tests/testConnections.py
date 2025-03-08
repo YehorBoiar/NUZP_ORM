@@ -1,7 +1,10 @@
-import unittest
-from ORM import model, datatypes
+import sys
 import os
-import sqlite3
+import unittest
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from ORM import model, datatypes
 
 DB_PATH = "databases/main.sqlite3"
 
