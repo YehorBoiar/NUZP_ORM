@@ -14,18 +14,22 @@ class ModelMeta(type):
     """
     def __new__(cls, name, bases, attrs):
         fields = {}
-        m2m_fields = {}
-        o2o_fields = {}
+        many_to_many = {}
         for attr_name, attr_value in list(attrs.items()):
             if isinstance(attr_value, Field):
                 fields[attr_name] = attr_value
-        #     elif isinstance(attr_value, ManyToManyField):
-        #         m2m_fields[attr_name] = attr_value
+            elif isinstance(attr_value, ManyToManyField):
+                many_to_many[attr_name] = attr_value
         attrs["_fields"] = fields
-        # attrs["_m2m_fields"] = m2m_fields
+        attrs["_many_to_many"] = many_to_many
         new_class = super().__new__(cls, name, bases, attrs)
 
         return new_class
+
+class ManyToManyField:
+    def __init__(self, to, through=None):
+        self.to = to  # Target model
+        self.through = through  # Optional custom junction table
 
 # ====================================================
 # 2. Relationship Field Types
@@ -48,120 +52,6 @@ class OneToOneField(ForeignKey):
     def __init__(self, to, **kwargs):
         kwargs.setdefault('unique', True)
         super().__init__(to, **kwargs)
-
-class ManyToManyField:
-    """
-    Implements a many-to-many relationship.
-    No column is created on the model's own table; an intermediate join table is used.
-    """
-    def __init__(self, to):
-        self.to = to  # the target model class
-        self.name = None  # will be set when the field is attached to the model
-
-    def contribute_to_class(self, cls, name):
-        self.name = name
-        self.model = cls
-        # Replace the attribute with a descriptor
-        setattr(cls, name, ManyToManyDescriptor(self))
-
-# ====================================================
-# 3. Many-to-Many Descriptor and Manager
-# ====================================================
-
-class ManyToManyDescriptor:
-    """
-    When you access the many-to-many field on an instance,
-    this descriptor returns a ManyToManyManager.
-    """
-    def __init__(self, m2m_field):
-        self.m2m_field = m2m_field
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-        return ManyToManyManager(instance, self.m2m_field)
-
-class ManyToManyManager:
-    """
-    Handles many-to-many operations (querying, adding, etc.) via a join table.
-    """
-    def __init__(self, instance, m2m_field):
-        self.instance = instance  # e.g., a dict representing the source row
-        self.m2m_field = m2m_field
-
-    def get_join_table_name(self):
-        # For example, if self.instance is of class "Book" and the field is "authors"
-        # and the related model is "Author", we name the join table: book_authors_author.
-        source_table = self.instance.__class__.__name__.lower()
-        target_table = self.m2m_field.to.__name__.lower()
-        return f"{source_table}_{self.m2m_field.name}_{target_table}"
-
-    def create_join_table(self):
-        join_table = self.get_join_table_name()
-        source_table = self.instance.__class__.__name__.lower()
-        target_table = self.m2m_field.to.__name__.lower()
-        connection_obj = sqlite3.connect(DB_PATH)
-        cursor = connection_obj.cursor()
-        
-        # Enable foreign keys for this connection
-        cursor.execute("PRAGMA foreign_keys = ON")
-        
-        # Simple join table with two INTEGER columns
-        create_sql = f"""
-        CREATE TABLE IF NOT EXISTS {join_table} (
-            {source_table}_id INTEGER,
-            {target_table}_id INTEGER
-        );
-        """
-        cursor.execute(create_sql)
-        connection_obj.commit()
-        connection_obj.close()
-
-    def add(self, *objs):
-        """
-        Add relationships between self.instance and the provided objects.
-        (It is assumed that each related object has been inserted and has an 'id'.)
-        """
-        self.create_join_table()
-        join_table = self.get_join_table_name()
-        source_table = self.instance.__class__.__name__.lower()
-        target_table = self.m2m_field.to.__name__.lower()
-        connection_obj = sqlite3.connect(DB_PATH)
-        cursor = connection_obj.cursor()
-        
-        # Enable foreign keys for this connection
-        cursor.execute("PRAGMA foreign_keys = ON")
-        
-        for obj in objs:
-            # Here we assume that both self.instance and obj are dict-like (with an 'id' key).
-            query = f"INSERT INTO {join_table} ({source_table}_id, {target_table}_id) VALUES (?, ?)"
-            cursor.execute(query, (self.instance['id'], obj['id']))
-        connection_obj.commit()
-        connection_obj.close()
-
-    def all(self):
-        """
-        Retrieve all related objects.
-        """
-        join_table = self.get_join_table_name()
-        source_table = self.instance.__class__.__name__.lower()
-        target_table = self.m2m_field.to.__name__.lower()
-        connection_obj = sqlite3.connect(DB_PATH)
-        cursor = connection_obj.cursor()
-        
-        # Enable foreign keys for this connection
-        cursor.execute("PRAGMA foreign_keys = ON")
-        
-        query = f"""
-        SELECT t.* FROM {target_table} t
-        JOIN {join_table} j ON t.id = j.{target_table}_id
-        WHERE j.{source_table}_id = ?
-        """
-        cursor.execute(query, (self.instance['id'],))
-        column_names = [desc[0] for desc in cursor.description]
-        results = [dict(zip(column_names, row)) for row in cursor.fetchall()]
-        connection_obj.close()
-        return results
 
 class QuerySet:
     """
@@ -463,10 +353,12 @@ class BaseModel(metaclass=ModelMeta):
     def create_table(cls):
         if not os.path.exists('databases'):
             os.makedirs('databases')
+
         table_name = cls.__name__.lower()
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
         fields_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL"]
+        
         for field_name, field in cls._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
                 # Store foreign keys as "<field_name>_id"
@@ -475,9 +367,19 @@ class BaseModel(metaclass=ModelMeta):
                 fields_sql.append(f"{column_name} {field.db_type} REFERENCES {ref_table}(id) ON DELETE CASCADE") # delete everything if id deleted 
             else:
                 fields_sql.append(f"{field_name} {field.db_type}")
-        # ManyToManyFields do not create a column in this table.
         cursor_obj.execute(f"DROP TABLE IF EXISTS {table_name}")
         cursor_obj.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});")
+        
+        for field_name, field in cls._many_to_many.items():
+            junction_table = field.through or f"{table_name}_{field.to.__name__.lower()}"
+            cursor_obj.execute(f"""
+                CREATE TABLE IF NOT EXISTS {junction_table} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    {table_name}_id INTEGER REFERENCES {table_name}(id) ON DELETE CASCADE,
+                    {field.to.__name__.lower()}_id INTEGER REFERENCES {field.to.__name__.lower()}(id) ON DELETE CASCADE,
+                    UNIQUE({table_name}_id, {field.to.__name__.lower()}_id)
+                );
+            """)
         connection_obj.close()
 
     @classmethod
