@@ -478,11 +478,16 @@ class BaseModel(metaclass=ModelMeta):
                 # Store foreign keys as "<field_name>_id"
                 column_name = field_name + "_id"
                 ref_table = field.to.__name__.lower() # get referenced table 
-                fields_sql.append(f"{column_name} {field.db_type} REFERENCES {ref_table}(id) ON DELETE CASCADE") # delete everything if id deleted 
+                fields_sql.append(f"{column_name} {field.get_db_type()} REFERENCES {ref_table}(id) ON DELETE CASCADE")
             else:
-                fields_sql.append(f"{field_name} {field.db_type}")
+                fields_sql.append(f"{field_name} {field.get_db_type()}")
+        
+        # Add debugging to see generated SQL
+        sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});"
+        print(f"Generated SQL: {sql}")
+        
         cursor_obj.execute(f"DROP TABLE IF EXISTS {table_name}")
-        cursor_obj.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});")
+        cursor_obj.execute(sql)
         
         for field_name, field in cls._many_to_many.items():
             junction_table = field.through or f"{table_name}_{field.to.__name__.lower()}"
