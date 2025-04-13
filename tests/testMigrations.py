@@ -103,6 +103,154 @@ class TestMigrationGeneration(unittest.TestCase):
         migration_files = list(self.migrations_dir.glob("????_*.py"))
         self.assertEqual(len(migration_files), 2,
                          "A second migration should be created when models change")
+    
+    def test_field_modification(self):
+        """Test that changing field attributes generates a new migration."""
+        class TestModel(BaseModel):
+            name = CharField(null=False)
+            
+        # Generate initial migration
+        generate_migrations([TestModel])
+        initial_migrations = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(initial_migrations), 1)
+        
+        # Modify field attribute
+        class TestModel(BaseModel):
+            name = CharField(null=True)  # Changed null attribute
+            
+        # Generate another migration
+        generate_migrations([TestModel])
+        
+        # Should have a new migration
+        updated_migrations = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(updated_migrations), 2,
+                         "Changing field attributes should create a new migration")
+    
+    def test_removing_field(self):
+        """Test that removing a field generates a new migration."""
+        class TestModel(BaseModel):
+            name = CharField()
+            age = CharField()
+            
+        # Generate initial migration
+        generate_migrations([TestModel])
+        
+        # Remove a field
+        class TestModel(BaseModel):
+            name = CharField()  # age field removed
+            
+        # Generate another migration
+        generate_migrations([TestModel])
+        
+        # Should have a new migration
+        migrations = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(migrations), 2,
+                         "Removing a field should create a new migration")
+    
+    def test_multiple_models(self):
+        """Test handling multiple models at once."""
+        class FirstModel(BaseModel):
+            title = CharField()
+            
+        class SecondModel(BaseModel):
+            name = CharField()
+        
+        # Generate migration with two models
+        generate_migrations([FirstModel, SecondModel])
+        
+        # Check that one migration file is created
+        migration_files = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(migration_files), 1)
+        
+        # Check both models are in the migration
+        with open(migration_files[0], "r") as f:
+            content = f.read()
+            self.assertIn("FirstModel.create_table()", content)
+            self.assertIn("SecondModel.create_table()", content)
+        
+        # Change only one model
+        class FirstModel(BaseModel):
+            title = CharField()
+            content = CharField()  # Added field
+            
+        class SecondModel(BaseModel):
+            name = CharField()  # Unchanged
+        
+        # Generate a new migration
+        generate_migrations([FirstModel, SecondModel])
+        
+        # Should have a new migration
+        migration_files = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(migration_files), 2,
+                         "Changing one model should create a new migration")
+    
+    def test_consecutive_changes(self):
+        """Test multiple consecutive changes to the same model."""
+        class TestModel(BaseModel):
+            name = CharField()
+        
+        # Initial migration
+        generate_migrations([TestModel])
+        
+        # First change - add a field
+        class TestModel(BaseModel):
+            name = CharField()
+            description = CharField()
+        
+        generate_migrations([TestModel])
+        
+        # Second change - add another field
+        class TestModel(BaseModel):
+            name = CharField()
+            description = CharField()
+            created_at = CharField()
+        
+        generate_migrations([TestModel])
+        
+        # Third change - remove a field
+        class TestModel(BaseModel):
+            name = CharField()
+            created_at = CharField()  # description removed
+        
+        generate_migrations([TestModel])
+        
+        # Should have four migrations total
+        migration_files = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(migration_files), 4,
+                         "Each model change should create a new migration")
+    
+    def test_empty_models_list(self):
+        """Test behavior with an empty models list."""
+        # Generate with empty list
+        generate_migrations([])
+        
+        # Should not create any migrations
+        migration_files = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(migration_files), 0,
+                         "No migrations should be created for empty models list")
+    
+    def test_unchanged_migration_signature(self):
+        """Test that adding a non-model changing comment doesn't trigger a migration."""
+        # Define a model with a comment
+        class TestModel(BaseModel):
+            name = CharField()
+            # This is a comment that doesn't affect the model
+        
+        # Generate initial migration
+        generate_migrations([TestModel])
+        
+        # Update the comment only
+        class TestModel(BaseModel):
+            name = CharField()
+            # This is a different comment that still doesn't affect the model
+        
+        # This shouldn't generate a new migration
+        generate_migrations([TestModel])
+        
+        # Should still have only one migration
+        migration_files = list(self.migrations_dir.glob("????_*.py"))
+        self.assertEqual(len(migration_files), 1,
+                         "Comments and whitespace shouldn't trigger new migrations")
 
     def tearDown(self):
         """Clean up the migrations directory."""
