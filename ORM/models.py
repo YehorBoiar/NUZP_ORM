@@ -59,6 +59,10 @@ def find_models(project_root, models_folder='myapp'):
 
 def generate_migrations(models):
     """Generate versioned migration files for all models."""
+    if not models:
+        print("No models provided. Skipping migration generation.")
+        return
+
     migrations_dir = Path('migrations')
     migrations_dir.mkdir(exist_ok=True)
 
@@ -71,33 +75,33 @@ def generate_migrations(models):
 
     # Enhanced model change detection
     from hashlib import sha256
-    
+
     # Create detailed signatures that include field information
     model_signatures = {}
     for model in models:
         # Capture basic model info
         model_info = f"{model.__name__}:{model.__module__}"
-        
+
         # Add regular fields
         fields_info = []
         for field_name, field in model._fields.items():
             # Get field type
             field_type = type(field).__name__
-            
+
             # Get field attributes
             attrs = {}
             for attr_name in ['db_type', 'null', 'unique', 'default']:
                 if hasattr(field, attr_name):
                     attrs[attr_name] = getattr(field, attr_name)
-            
+
             # For foreign key fields, include target model
             if hasattr(field, 'to'):
                 attrs['to'] = field.to.__name__
-            
+
             # Create field signature
             field_signature = f"{field_name}:{field_type}:{attrs}"
             fields_info.append(field_signature)
-        
+
         # Add many-to-many fields if present
         if hasattr(model, '_many_to_many'):
             for field_name, field in model._many_to_many.items():
@@ -107,13 +111,14 @@ def generate_migrations(models):
                 }
                 if field.through:
                     attrs['through'] = field.through
-                
+
                 field_signature = f"{field_name}:{field_type}:{attrs}"
                 fields_info.append(field_signature)
-        
+
         # Create complete model signature
         model_signature = f"{model_info}:{','.join(sorted(fields_info))}"
-        model_signatures[model.__name__] = sha256(model_signature.encode()).hexdigest()
+        model_signatures[model.__name__] = sha256(
+            model_signature.encode()).hexdigest()
 
     # Load the last migration's signature if it exists
     signature_file = migrations_dir / 'last_signature.txt'
