@@ -75,7 +75,7 @@ def apply_migrations():
     """Apply all migrations."""
     migrations_dir = Path('migrations')
     if not migrations_dir.exists():
-        print("No migrations found. Run 'generate' first.")
+        print("No migrations directory found. Run 'generate' first.")
         return
     
     migration_file = migrations_dir / 'migration.py'
