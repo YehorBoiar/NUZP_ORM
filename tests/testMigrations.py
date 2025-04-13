@@ -281,38 +281,165 @@ def migrate():
 """)
 
     def test_apply_migrations(self):
-        """Test that apply_migrations successfully applies migrations and tracks them."""
-        # Apply the migration for the first time
+        """Test that apply_migrations successfully applies migrations."""
         apply_migrations()
-
+        
         # Verify that the table was created
         import sqlite3
         connection = sqlite3.connect("databases/main.sqlite3")
         cursor = connection.cursor()
-
-        # Check the model table was created
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='testmodel';")
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testmodel';")
         table_exists = cursor.fetchone()
-        self.assertIsNotNone(
-            table_exists, "The 'testmodel' table should be created.")
-
-        # Check the migrations table was created
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='orm_migrations';")
-        migrations_table_exists = cursor.fetchone()
-        self.assertIsNotNone(migrations_table_exists,
-                             "The migrations tracking table should be created.")
-
-        # Check the migration is recorded in the table
+        self.assertIsNotNone(table_exists, "The 'testmodel' table should be created.")
+        connection.close()
+    
+    def test_empty_migrations_directory(self):
+        """Test behavior when migrations directory is empty."""
+        # Remove any migration files
+        for file in self.migrations_dir.glob("*.py"):
+            os.remove(file)
+            
+        # Apply migrations with empty directory
+        apply_migrations()
+        
+        # This should not error and should simply report no migrations to apply
+        # We just verify that the function returns without error
+        
+    def test_failed_migration(self):
+        """Test handling of a failed migration."""
+        # Create a migration file with an error
+        bad_migration = self.migrations_dir / "0002_bad_migration.py"
+        with open(bad_migration, "w") as f:
+            f.write("""
+def migrate():
+    # This will raise a NameError
+    undefined_variable + 1
+""")
+        
+        # Apply migrations
+        with self.assertRaises(Exception):
+            apply_migrations()
+            
+        # Check that no record of the bad migration exists
+        import sqlite3
+        connection = sqlite3.connect("databases/main.sqlite3")
+        cursor = connection.cursor()
         cursor.execute("SELECT migration_name FROM orm_migrations;")
-        recorded_migrations = cursor.fetchall()
-        self.assertEqual(len(recorded_migrations), 1,
-                         "One migration should be recorded")
-        self.assertEqual(recorded_migrations[0][0], "0001_initial_migration",
-                         "The correct migration name should be recorded")
+        recorded_migrations = [row[0] for row in cursor.fetchall()]
+        self.assertNotIn("0002_bad_migration", recorded_migrations, 
+                         "Failed migrations should not be recorded")
+        connection.close()
+    
+    def test_duplicate_application(self):
+        """Test that applying migrations multiple times is safe."""
+        # First application
+        apply_migrations()
+        
+        # Second application should skip already applied migrations
+        apply_migrations()
+        
+        # Third application still shouldn't error
+        apply_migrations()
+        
+        # Check that the migration is only recorded once
+        import sqlite3
+        connection = sqlite3.connect("databases/main.sqlite3")
+        cursor = connection.cursor()
+        cursor.execute("SELECT migration_name, COUNT(*) FROM orm_migrations GROUP BY migration_name;")
+        counts = cursor.fetchall()
+        for migration, count in counts:
+            self.assertEqual(count, 1, f"Migration {migration} should only be recorded once")
+        connection.close()
+    
+    def test_out_of_order_migrations(self):
+        """Test behavior with out-of-order migration files."""
+        # Create migrations out of numerical order
+        third_migration = self.migrations_dir / "0003_third_migration.py"
+        with open(third_migration, "w") as f:
+            f.write("""
+from ORM.model import BaseModel
+from ORM.datatypes import CharField
 
-        # Create a second migration file to test sequential application
+class ThirdModel(BaseModel):
+    content = CharField()
+
+def migrate():
+    ThirdModel.create_table()
+""")
+        
+        # Apply migrations - they should be applied in numerical order
+        apply_migrations()
+        
+        # Verify tables exist in expected order
+        import sqlite3
+        connection = sqlite3.connect("databases/main.sqlite3")
+        cursor = connection.cursor()
+        
+        # Check all tables were created
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testmodel';")
+        self.assertIsNotNone(cursor.fetchone(), "First migration table should be created")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='thirdmodel';")
+        self.assertIsNotNone(cursor.fetchone(), "Third migration table should be created")
+        
+        # Check order in which migrations were applied
+        cursor.execute("SELECT migration_name FROM orm_migrations ORDER BY id;")
+        migration_order = [row[0] for row in cursor.fetchall()]
+        self.assertEqual(migration_order[0], "0001_initial_migration", 
+                         "First migration should be applied first")
+        self.assertEqual(migration_order[1], "0003_third_migration", 
+                         "Third migration should be applied next")
+        
+        connection.close()
+    
+    def test_migration_with_dependencies(self):
+        """Test migrations that depend on previous migrations."""
+        # Create a migration that depends on a previous migration
+        second_migration = self.migrations_dir / "0002_dependent_migration.py"
+        with open(second_migration, "w") as f:
+            f.write("""
+from ORM.model import BaseModel
+from ORM.datatypes import CharField
+
+class TestModel(BaseModel):
+    # This model is defined in the first migration
+    # We're adding a method that depends on the table existing
+    pass
+
+def migrate():
+    # This migration only works if TestModel table already exists
+    import sqlite3
+    connection = sqlite3.connect("databases/main.sqlite3")
+    cursor = connection.cursor()
+    cursor.execute("ALTER TABLE testmodel ADD COLUMN description TEXT;")
+    connection.commit()
+    connection.close()
+""")
+        
+        # Apply migrations
+        apply_migrations()
+        
+        # Check that the column was added
+        import sqlite3
+        connection = sqlite3.connect("databases/main.sqlite3")
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA table_info(testmodel);")
+        columns = [row[1] for row in cursor.fetchall()]
+        self.assertIn("description", columns, "The dependent migration should add a column")
+        connection.close()
+    
+    def test_non_existent_migrations_dir(self):
+        """Test behavior when migrations directory doesn't exist."""
+        # Remove migrations directory
+        shutil.rmtree(self.migrations_dir)
+        
+        # Apply migrations should handle this gracefully
+        apply_migrations()
+        # We just verify that no exception is raised
+    
+    def test_apply_specific_migration(self):
+        """Test applying a specific migration by name."""
+        # Create a second migration
         second_migration = self.migrations_dir / "0002_second_migration.py"
         with open(second_migration, "w") as f:
             f.write("""
@@ -325,26 +452,28 @@ class SecondModel(BaseModel):
 def migrate():
     SecondModel.create_table()
 """)
-
-        # Apply migrations again - first should be skipped, second should be applied
-        apply_migrations()
-
-        # Verify both tables exist
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='secondmodel';")
-        second_table_exists = cursor.fetchone()
-        self.assertIsNotNone(second_table_exists,
-                             "The 'secondmodel' table should be created.")
-
-        # Verify both migrations are recorded
-        cursor.execute(
-            "SELECT migration_name FROM orm_migrations ORDER BY id;")
-        recorded_migrations = cursor.fetchall()
-        self.assertEqual(len(recorded_migrations), 2,
-                         "Two migrations should be recorded")
-        self.assertEqual(recorded_migrations[0][0], "0001_initial_migration")
-        self.assertEqual(recorded_migrations[1][0], "0002_second_migration")
-
+        
+        # Apply only the second migration directly
+        apply_migrations(specific_migration="0002_second_migration")
+        
+        # Verify only the second model table exists
+        import sqlite3
+        connection = sqlite3.connect("databases/main.sqlite3")
+        cursor = connection.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='secondmodel';")
+        self.assertIsNotNone(cursor.fetchone(), "Second model table should be created")
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testmodel';")
+        self.assertIsNone(cursor.fetchone(), "First model table should not be created")
+        
+        # Check that only the specific migration is recorded
+        cursor.execute("SELECT migration_name FROM orm_migrations;")
+        recorded_migrations = [row[0] for row in cursor.fetchall()]
+        self.assertEqual(len(recorded_migrations), 1, "Only one migration should be recorded")
+        self.assertEqual(recorded_migrations[0], "0002_second_migration", 
+                         "The specific migration should be recorded")
+        
         connection.close()
 
     def tearDown(self):
