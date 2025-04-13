@@ -210,15 +210,14 @@ def get_applied_migrations():
         return []
 
 
-def apply_migrations():
-    """Apply all migrations in sequential order, tracking which have been applied."""
+def apply_migrations(specific_migration=None):
+    """Apply all migrations or a specific migration in sequential order."""
     # Ensure migrations table exists
     create_migrations_table()
 
     # Get list of applied migrations
     applied_migrations = get_applied_migrations()
-    print(
-        f"Already applied migrations: {', '.join(applied_migrations) if applied_migrations else 'None'}")
+    print(f"Already applied migrations: {', '.join(applied_migrations) if applied_migrations else 'None'}")
 
     migrations_dir = Path('migrations')
     if not migrations_dir.exists():
@@ -233,6 +232,31 @@ def apply_migrations():
 
     sys.path.insert(0, str(migrations_dir.parent))
 
+    # If applying a specific migration
+    if specific_migration:
+        migration_file = next((f for f in migration_files if f.stem == specific_migration), None)
+        if not migration_file:
+            print(f"Migration '{specific_migration}' not found.")
+            return
+            
+        # Skip if already applied
+        if specific_migration in applied_migrations:
+            print(f"Migration {specific_migration} already applied, skipping.")
+            return
+            
+        try:
+            print(f"Applying specific migration: {specific_migration}")
+            migration_module = importlib.import_module(f'migrations.{specific_migration}')
+            migration_module.migrate()
+            # Record the migration as applied
+            record_migration(specific_migration)
+            print(f"Migration {specific_migration} applied successfully!")
+        except Exception as e:
+            print(f"Error applying migration {specific_migration}: {e}")
+            raise  # Re-raise the exception for test cases
+        return
+
+    # Apply all migrations in sequence
     for migration_file in migration_files:
         module_name = migration_file.stem
 
@@ -243,15 +267,14 @@ def apply_migrations():
 
         try:
             print(f"Applying migration: {module_name}")
-            migration_module = importlib.import_module(
-                f'migrations.{module_name}')
+            migration_module = importlib.import_module(f'migrations.{module_name}')
             migration_module.migrate()
             # Record the migration as applied
             record_migration(module_name)
             print(f"Migration {module_name} applied successfully!")
         except Exception as e:
             print(f"Error applying migration {module_name}: {e}")
-            break
+            raise  # Re-raise the exception for test cases
 
 
 def show_migrations():
