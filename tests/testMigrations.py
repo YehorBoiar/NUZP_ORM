@@ -2,7 +2,7 @@ import unittest
 import os
 import shutil
 from pathlib import Path
-from ORM.models import find_models, generate_migrations, apply_migrations
+from ORM.manager import find_models, generate_migrations, apply_migrations
 from ORM.model import BaseModel
 from ORM.datatypes import CharField
 

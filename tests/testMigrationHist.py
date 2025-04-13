@@ -28,7 +28,7 @@ def migrate():
 
     def test_migration_tracking(self):
         """Test that migrations are properly tracked once applied."""
-        from ORM.models import apply_migrations, get_applied_migrations
+        from ORM.manager import apply_migrations, get_applied_migrations
 
         # Apply the migration
         apply_migrations()
