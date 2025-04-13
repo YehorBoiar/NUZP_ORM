@@ -9,6 +9,7 @@ DB_PATH = "databases/main.sqlite3"
 # 1. Extend the metaclass to capture relationship fields
 # ====================================================
 
+
 class ModelMeta(type):
     """
     Metaclass to register model fields including relationships.
@@ -30,6 +31,7 @@ class ModelMeta(type):
 # ====================================================
 # 2. Relationship Field Types
 # ====================================================
+
 
 class ManyToManyField:
     def __init__(self, to, through=None):
@@ -58,7 +60,8 @@ class ManyToManyField:
         if not target_exists:
             # Target record does not exist, so we skip the insertion
             connection_obj.close()
-            raise ValueError(f"Target record with id={target_dict['id']} does not exist in {target_class_name} table.")
+            raise ValueError(
+                f"Target record with id={target_dict['id']} does not exist in {target_class_name} table.")
 
         # Check if the relationship already exists in the junction table
         cursor_obj.execute(f"""
@@ -133,24 +136,29 @@ class ManyToManyField:
         # Convert rows to dictionaries
         columns = [column[0] for column in cursor_obj.description]
         return [dict(zip(columns, row)) for row in rows]
-    
+
+
 class ForeignKey(Field):
     """
     Implements a one-to-many relationship (the "many" side).
     In the database, we store the related object's id as an INTEGER.
     """
+
     def __init__(self, to, **kwargs):
         self.to = to  # the target model class
         super().__init__("INTEGER", **kwargs)
+
 
 class OneToOneField(ForeignKey):
     """
     Implements a one-to-one relationship.
     This is just a ForeignKey with a UNIQUE constraint.
     """
+
     def __init__(self, to, **kwargs):
         kwargs.setdefault('unique', True)
         super().__init__(to, **kwargs)
+
 
 class QuerySet:
     """
@@ -226,7 +234,7 @@ class QuerySet:
         if self.limit_val is not None:
             query += f" LIMIT {self.limit_val}"
         if self.offset_val is not None:
-            if(query.__contains__("LIMIT")):
+            if (query.__contains__("LIMIT")):
                 query += f" OFFSET {self.offset_val}"
             else:
                 query += f" LIMIT -1 OFFSET {self.offset_val}"
@@ -245,7 +253,8 @@ class QuerySet:
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute(query, tuple(self.parameters))
         column_names = [desc[0] for desc in cursor_obj.description]
-        results = [dict(zip(column_names, row)) for row in cursor_obj.fetchall()]
+        results = [dict(zip(column_names, row))
+                   for row in cursor_obj.fetchall()]
         connection_obj.close()
         return results
 
@@ -257,7 +266,7 @@ class QuerySet:
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", field_name):
             raise ValueError(f"Invalid field name: {field_name}")
         return field_name
-    
+
     def filter(self, **conditions):
         """
         Adds conditions to the WHERE clause to filter the results.
@@ -275,7 +284,7 @@ class QuerySet:
         """
         clauses = []
         params = []
-        
+
         # Parse conditions and build SQL clauses
         for key, value in conditions.items():
             # Split field and lookup operator
@@ -286,8 +295,9 @@ class QuerySet:
             try:
                 field = self.sanitize_field_name(field)
             except ValueError as e:
-                raise ValueError(f"Invalid field name in condition: {key}") from e
-        
+                raise ValueError(
+                    f"Invalid field name in condition: {key}") from e
+
             # Handle different lookup types
             if lookup == 'exact':
                 clause = f"{field} = ?"
@@ -332,7 +342,7 @@ class QuerySet:
             limit_val=self.limit_val,
             offset_val=self.offset_val
         )
-        
+
     def get(self, **conditions):
         """
         Returns a single record matching the specified conditions.
@@ -351,7 +361,8 @@ class QuerySet:
         if len(results) == 0:
             raise Exception("DoesNotExist: No matching record found.")
         elif len(results) > 1:
-            raise Exception("MultipleObjectsReturned: More than one record found.")
+            raise Exception(
+                "MultipleObjectsReturned: More than one record found.")
         return results[0]
 
     def order_by(self, *fields):
@@ -431,16 +442,19 @@ class QuerySet:
         if isinstance(index, slice):
             offset = index.start if index.start is not None else 0
             limit_val = index.stop - offset if index.stop is not None else None
-            qs = QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, limit_val, offset)
+            qs = QuerySet(self.model, self.where_clause,
+                          self.parameters, self.order_clause, limit_val, offset)
             return qs._execute()
         elif isinstance(index, int):
-            qs = QuerySet(self.model, self.where_clause, self.parameters, self.order_clause, 1, index)
+            qs = QuerySet(self.model, self.where_clause,
+                          self.parameters, self.order_clause, 1, index)
             result = qs._execute()
             if result:
                 return result[0]
             raise IndexError("Index out of range")
         else:
             raise TypeError("Invalid argument type.")
+
 
 class Manager:
     def __get__(self, instance, owner):
@@ -449,7 +463,7 @@ class Manager:
 
     def __getattr__(self, attr):
         return getattr(QuerySet(self.model), attr)
-    
+
     def __getitem__(self, index):
         return QuerySet(self.model)[index]
 
@@ -459,6 +473,7 @@ class Manager:
 # ====================================================
 # 5. BaseModel: Create tables, insert data, etc.
 # ====================================================
+
 
 class BaseModel(metaclass=ModelMeta):
     objects = Manager()
@@ -472,23 +487,21 @@ class BaseModel(metaclass=ModelMeta):
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
         fields_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL"]
-        
+
         for field_name, field in cls._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
                 # Store foreign keys as "<field_name>_id"
                 column_name = field_name + "_id"
-                ref_table = field.to.__name__.lower() # get referenced table 
-                fields_sql.append(f"{column_name} {field.get_db_type()} REFERENCES {ref_table}(id) ON DELETE CASCADE")
+                ref_table = field.to.__name__.lower()  # get referenced table
+                # delete everything if id deleted
+                fields_sql.append(
+                    f"{column_name} {field.db_type} REFERENCES {ref_table}(id) ON DELETE CASCADE")
             else:
-                fields_sql.append(f"{field_name} {field.get_db_type()}")
-        
-        # Add debugging to see generated SQL
-        sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});"
-        print(f"Generated SQL: {sql}")
-        
+                fields_sql.append(f"{field_name} {field.db_type}")
         cursor_obj.execute(f"DROP TABLE IF EXISTS {table_name}")
-        cursor_obj.execute(sql)
-        
+        cursor_obj.execute(
+            f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});")
+
         for field_name, field in cls._many_to_many.items():
             junction_table = field.through or f"{table_name}_{field.to.__name__.lower()}"
             cursor_obj.execute(f"""
@@ -509,7 +522,7 @@ class BaseModel(metaclass=ModelMeta):
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute("PRAGMA foreign_keys = ON;")
         field_names = []
-        
+
         for field_name, field in cls._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
                 field_names.append(field_name + "_id")
@@ -522,7 +535,7 @@ class BaseModel(metaclass=ModelMeta):
         values = []
         for entry in entries:
             row = []
-            
+
             for field_name, field in cls._fields.items():
                 if isinstance(field, ForeignKey) or isinstance(field, OneToOneField):
                     value = entry[field_name]
@@ -530,22 +543,24 @@ class BaseModel(metaclass=ModelMeta):
                         related_id = value.get('id')
                     else:
                         related_id = value
-                    
+
                     if isinstance(field, OneToOneField):
                         check_query = f"SELECT COUNT(*) FROM {cls.__name__.lower()} WHERE {field_name}_id = ?"
                         cursor_obj.execute(check_query, (related_id,))
                         if cursor_obj.fetchone()[0] > 0:
-                            raise ValueError(f"Duplicate entry detected for {field_name} (OneToOneField) with id {related_id}")
+                            raise ValueError(
+                                f"Duplicate entry detected for {field_name} (OneToOneField) with id {related_id}")
 
                     row.append(related_id)
                 else:
                     row.append(entry[field_name])
-            
+
             values.append(tuple(row))
         try:
             cursor_obj.executemany(query, values)
             connection_obj.commit()
-            print(f"Successfully inserted {len(entries)} entries into {cls.__name__}")
+            print(
+                f"Successfully inserted {len(entries)} entries into {cls.__name__}")
         except Exception as e:
             raise
         finally:
@@ -555,11 +570,11 @@ class BaseModel(metaclass=ModelMeta):
     def delete_entries(cls, conditions, confirm=False):
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
-        
+
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("PRAGMA foreign_keys = ON;") 
-        
+        cursor_obj.execute("PRAGMA foreign_keys = ON;")
+
         if not conditions:
             if confirm or input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ").lower() == "yes":
                 query = f"DELETE FROM {cls.__name__.lower()}"
@@ -568,7 +583,8 @@ class BaseModel(metaclass=ModelMeta):
                 print("Deletion cancelled.")
                 return
         else:
-            where_clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
+            where_clause = " AND ".join(
+                [f"{field} = ?" for field in conditions.keys()])
             query = f"DELETE FROM {cls.__name__.lower()} WHERE {where_clause}"
             values = tuple(conditions.values())
             cursor_obj.execute(query, values)
@@ -577,33 +593,34 @@ class BaseModel(metaclass=ModelMeta):
         print(f"Deleted entries from {cls.__name__} where {conditions}")
         connection_obj.close()
 
-
     @classmethod
     def replace_entries(cls, conditions, new_values):
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("PRAGMA foreign_keys = ON;") 
+        cursor_obj.execute("PRAGMA foreign_keys = ON;")
         if not conditions:
-            print("Error: You must provide at least one condition to update specific rows.")
+            print(
+                "Error: You must provide at least one condition to update specific rows.")
             return
         if not new_values:
             print("Error: No new values provided to update.")
             return
         set_clause = ", ".join([f"{field} = ?" for field in new_values.keys()])
-        where_clause = " AND ".join([f"{field} = ?" for field in conditions.keys()])
+        where_clause = " AND ".join(
+            [f"{field} = ?" for field in conditions.keys()])
         query = f"UPDATE {cls.__name__.lower()} SET {set_clause} WHERE {where_clause}"
         values = tuple(new_values.values()) + tuple(conditions.values())
         try:
             cursor_obj.execute(query, values)
             connection_obj.commit()
-            print(f"Updated entries in {cls.__name__} where {conditions} with {new_values}")
+            print(
+                f"Updated entries in {cls.__name__} where {conditions} with {new_values}")
         except Exception as e:
             print(f"Error updating entries: {e}")
         finally:
             connection_obj.close()
-
 
     @classmethod
     def add_m2m(cls, field_name, source_dict, target_dict):
