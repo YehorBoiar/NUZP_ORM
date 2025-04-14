@@ -4,29 +4,29 @@ import unittest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ORM import model, datatypes
+from ORM import base, datatypes
 
 DB_PATH = "databases/main.sqlite3"
 
-class Customers(model.BaseModel):
+class Customers(base.BaseModel):
     name = datatypes.CharField()
     age = datatypes.IntegerField()
     
-class ContactInfo(model.BaseModel):
+class ContactInfo(base.BaseModel):
     phone = datatypes.CharField()
     city = datatypes.CharField()
-    customer = model.OneToOneField(Customers)
+    customer = base.OneToOneField(Customers)
 
-class Orders(model.BaseModel):
+class Orders(base.BaseModel):
     item = datatypes.CharField()
-    customer = model.ForeignKey(to=Customers) 
+    customer = base.ForeignKey(to=Customers) 
 
-class Author(model.BaseModel):
+class Author(base.BaseModel):
     name = datatypes.CharField()
 
-class Book(model.BaseModel):
+class Book(base.BaseModel):
     title = datatypes.CharField()
-    authors = model.ManyToManyField(to=Author)
+    authors = base.ManyToManyField(to=Author)
 
 
 class TestOneToManyRelationship(unittest.TestCase):

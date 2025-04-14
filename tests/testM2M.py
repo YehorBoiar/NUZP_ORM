@@ -5,20 +5,20 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ORM import model, datatypes
+from ORM import base, datatypes
 
 DB_PATH = "databases/main.sqlite3"
 
-class Author(model.BaseModel):
+class Author(base.BaseModel):
     name = datatypes.CharField()
 
-class Book(model.BaseModel):
+class Book(base.BaseModel):
     title = datatypes.CharField()
-    authors = model.ManyToManyField(to=Author)
+    authors = base.ManyToManyField(to=Author)
 
-class CustomBook(model.BaseModel):
+class CustomBook(base.BaseModel):
     title = datatypes.CharField()
-    authors = model.ManyToManyField(Author, through="customjunction")
+    authors = base.ManyToManyField(Author, through="customjunction")
 
 
 class TestManyToManyRelationships(unittest.TestCase):

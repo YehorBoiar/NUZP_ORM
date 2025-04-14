@@ -16,7 +16,7 @@ class TestMigrationHistory(unittest.TestCase):
         migration_file = self.migrations_dir / "0001_initial_migration.py"
         with open(migration_file, "w") as f:
             f.write("""
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 class TestModel(BaseModel):

@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 from ORM.manager import find_models, generate_migrations, apply_migrations
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 # Temporary test directory for models
@@ -25,7 +25,7 @@ class TestModelDiscovery(unittest.TestCase):
         # Create a test model file
         with open(os.path.join(TEST_APP_DIR, "test_model.py"), "w") as f:
             f.write("""
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 class TestModel(BaseModel):
@@ -320,7 +320,7 @@ class TestMigrationApplication(unittest.TestCase):
         migration_file = self.migrations_dir / "0001_initial_migration.py"
         with open(migration_file, "w") as f:
             f.write("""
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 class TestModel(BaseModel):
@@ -411,7 +411,7 @@ def migrate():
         third_migration = self.migrations_dir / "0003_third_migration.py"
         with open(third_migration, "w") as f:
             f.write("""
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 class ThirdModel(BaseModel):
@@ -457,7 +457,7 @@ def migrate():
         second_migration = self.migrations_dir / "0002_dependent_migration.py"
         with open(second_migration, "w") as f:
             f.write("""
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 class TestModel(BaseModel):
@@ -503,7 +503,7 @@ def migrate():
         second_migration = self.migrations_dir / "0002_second_migration.py"
         with open(second_migration, "w") as f:
             f.write("""
-from ORM.model import BaseModel
+from ORM.base import BaseModel
 from ORM.datatypes import CharField
 
 class SecondModel(BaseModel):

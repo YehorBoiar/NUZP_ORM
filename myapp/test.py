@@ -1,4 +1,4 @@
-from ORM import model
+from ORM import base
 from ORM.datatypes import CharField
 import sys
 import os
@@ -6,9 +6,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-class Student(model.BaseModel):
+class Student(base.BaseModel):
     name = CharField()
 
-class Course(model.BaseModel):
+class Course(base.BaseModel):
     title = CharField()
-    students = model.ManyToManyField(Student)
+    students = base.ManyToManyField(Student)

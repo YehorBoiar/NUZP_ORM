@@ -6,7 +6,7 @@ import inspect
 import argparse
 from pathlib import Path
 
-from ORM.model import BaseModel, DB_PATH
+from ORM.base import BaseModel, DB_PATH
 
 
 def find_models(project_root, models_folder='myapp'):

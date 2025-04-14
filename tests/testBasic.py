@@ -5,11 +5,11 @@ import sqlite3
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ORM import model, datatypes
+from ORM import base, datatypes
 
 DB_PATH = "databases/main.sqlite3"
 
-class Student(model.BaseModel):
+class Student(base.BaseModel):
     name = datatypes.CharField()
     degree = datatypes.CharField()
 
