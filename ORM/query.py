@@ -3,7 +3,7 @@ import re
 
 
 DB_PATH = "databases/main.sqlite3"
-
+REPR_OUTPUT_SIZE = 10
 
 class QuerySet:
     """
@@ -63,6 +63,39 @@ class QuerySet:
         self.order_clause = order_clause
         self.limit_val = limit_val
         self.offset_val = offset_val
+
+    def _fetch_for_repr(self):
+        """Fetch a limited number of results for representation."""
+        # Fetch one more than the limit to check if there are more results
+        qs_limited = QuerySet(
+            model=self.model,
+            where_clause=self.where_clause,
+            parameters=self.parameters,
+            order_clause=self.order_clause,
+            limit_val=REPR_OUTPUT_SIZE + 1, # Fetch one extra
+            offset_val=self.offset_val
+        )
+        return qs_limited._execute() # Returns list of dicts currently
+
+    def __repr__(self):
+        """Return a string representation of the QuerySet, showing limited results."""
+        data = self._fetch_for_repr()
+        # Check if there were more results than the limit
+        has_more = len(data) > REPR_OUTPUT_SIZE
+        # Slice data to the display limit
+        data_to_display = data[:REPR_OUTPUT_SIZE]
+
+        # Convert dicts to model instances for better repr (if .get() returned objects)
+        # Since _execute currently returns dicts, we'll represent them as dicts for now.
+        # Ideally, _execute would return model instances.
+        # For now, just format the list of dicts.
+        items_repr = ",\n ".join(repr(item) for item in data_to_display)
+
+        if has_more:
+            return f"<QuerySet [\n {items_repr},\n ...\n]>"
+        else:
+            return f"<QuerySet [\n {items_repr}\n]>"
+
 
     def _build_query(self):
         """

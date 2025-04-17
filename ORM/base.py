@@ -51,6 +51,12 @@ class BaseModel(metaclass=ModelMeta):
             else:
                 raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}' corresponding to a model field")
 
+    def __repr__(self):
+        """Return a string representation of the model instance."""
+        # Use the instance's ID if available, otherwise indicate it's unsaved
+        pk = self.id if self.id is not None else '(unsaved)'
+        return f"<{self.__class__.__name__}: {pk}>"
+
     @classmethod
     def create_table(cls):
         if not os.path.exists('databases'):
