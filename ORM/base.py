@@ -176,7 +176,6 @@ class BaseModel(metaclass=ModelMeta):
             for model_field_name, db_field_name in zip(field_names_model, field_names_db):
                 field = cls._fields[model_field_name]
                 value = cls._extract_value_for_db(entry, model_field_name, field, is_dict_input)
-
                 if isinstance(field, OneToOneField) and value is not None:
                     try:
                         cls._check_onetoone_constraint(cursor_obj, db_field_name, model_field_name, value)
@@ -189,20 +188,41 @@ class BaseModel(metaclass=ModelMeta):
         return values
 
     @classmethod
-    def _execute_insert(cls, connection_obj, cursor_obj, query, values):
-        """Execute the insert query and handle commit/rollback."""
+    def _execute_insert(cls, connection_obj, cursor_obj, query, entries, values_list, is_dict_input):
+        """
+        Execute the insert query and handle commit/rollback.
+        Updates instance IDs if inserting model instances one by one.
+        """
         try:
-            cursor_obj.executemany(query, values)
+            if is_dict_input:
+                # Use executemany for dictionary inputs (bulk insert)
+                cursor_obj.executemany(query, values_list)
+                print(f"Successfully inserted {len(values_list)} entries into {cls.__name__}")
+            else:
+                # Insert instances one by one to get lastrowid
+                inserted_count = 0
+                for i, entry_instance in enumerate(entries):
+                    values_tuple = values_list[i] # Get the pre-processed values for this instance
+                    cursor_obj.execute(query, values_tuple)
+                    # Get the last inserted ID and update the instance
+                    last_id = cursor_obj.lastrowid
+                    entry_instance.id = last_id
+                    inserted_count += 1
+                print(f"Successfully inserted {inserted_count} entries into {cls.__name__} and updated instance IDs.")
+
             connection_obj.commit()
-            print(f"Successfully inserted {len(values)} entries into {cls.__name__}")
+
         except Exception as e:
             connection_obj.rollback()
-            print(f"Error during bulk insert into {cls.__name__}: {e}") # Log or print error
+            print(f"Error during insert into {cls.__name__}: {e}") # Log or print error
             raise # Re-raise the exception after rollback
 
     @classmethod
     def insert_entries(cls, entries):
         is_dict_input = cls._validate_insert_input(entries)
+        if is_dict_input is None: # Handle case where entries list is empty
+             print("No entries to insert.")
+             return
 
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
@@ -215,16 +235,16 @@ class BaseModel(metaclass=ModelMeta):
 
             field_names_model, field_names_db, query = cls._prepare_insert_sql()
 
-            # Wrap value processing and execution in a try block associated with the connection
-            values = cls._process_entries_for_values(
+            # Process entries to get values list (needed for both dicts and instances)
+            values_list = cls._process_entries_for_values(
                 entries, is_dict_input, field_names_model, field_names_db, cursor_obj
             )
 
-            cls._execute_insert(connection_obj, cursor_obj, query, values)
+            # Pass entries list along with values_list to _execute_insert
+            cls._execute_insert(connection_obj, cursor_obj, query, entries, values_list, is_dict_input)
 
         except Exception as e:
             # Catch potential errors during validation, SQL prep, or processing
-            # Rollback might be needed if error occurred after connection started
             if connection_obj:
                 try:
                     connection_obj.rollback()
