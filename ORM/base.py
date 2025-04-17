@@ -32,6 +32,24 @@ class ModelMeta(type):
 
 class BaseModel(metaclass=ModelMeta):
     objects = Manager()
+    id = None # Initialize id attribute
+
+    def __init__(self, **kwargs):
+        # Initialize all defined fields to None or their default
+        for field_name in self._fields:
+            setattr(self, field_name, None)
+        # Also initialize M2M fields (though they won't store simple values)
+        for field_name in self._many_to_many:
+             setattr(self, field_name, None) # Or perhaps an empty manager/list later
+
+        # Assign provided keyword arguments to attributes
+        for key, value in kwargs.items():
+            if key == 'id':
+                self.id = value
+            elif key in self._fields or key in self._many_to_many:
+                setattr(self, key, value)
+            else:
+                raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}' corresponding to a model field")
 
     @classmethod
     def create_table(cls):
@@ -69,46 +87,92 @@ class BaseModel(metaclass=ModelMeta):
             """)
         connection_obj.close()
 
+    # TODO: M2M and insert entries are separate functions. Merge them.
     @classmethod
     def insert_entries(cls, entries):
+        if not entries:
+            print("No entries provided to insert.")
+            return # Nothing to insert
+
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
+
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute("PRAGMA foreign_keys = ON;")
-        field_names = []
+
+        field_names_db = [] # Field names as they appear in the DB (e.g., 'author_id')
+        field_names_model = [] # Field names as they appear in the Model (e.g., 'author')
 
         for field_name, field in cls._fields.items():
+            field_names_model.append(field_name)
             if isinstance(field, (ForeignKey, OneToOneField)):
-                field_names.append(field_name + "_id")
+                field_names_db.append(field_name + "_id")
             else:
-                field_names.append(field_name)
+                field_names_db.append(field_name)
 
-        placeholders = ", ".join(["?" for _ in field_names])
-        columns = ", ".join(field_names)
+        placeholders = ", ".join(["?" for _ in field_names_db])
+        columns = ", ".join(field_names_db)
         query = f"INSERT INTO {cls.__name__.lower()} ({columns}) VALUES ({placeholders})"
+
         values = []
+        first_entry = entries[0]
+        is_dict_input = isinstance(first_entry, dict)
+        is_model_instance_input = isinstance(first_entry, BaseModel)
+
+        if not is_dict_input and not is_model_instance_input:
+             connection_obj.close()
+             raise TypeError("Entries must be a list of dictionaries or BaseModel instances.")
+
         for entry in entries:
             row = []
+            # Ensure all entries are of the same type as the first one
+            if is_dict_input and not isinstance(entry, dict):
+                connection_obj.close()
+                raise TypeError("All entries must be dictionaries.")
+            if is_model_instance_input and not isinstance(entry, BaseModel):
+                connection_obj.close()
+                raise TypeError("All entries must be BaseModel instances.")
+            if is_model_instance_input and not isinstance(entry, cls):
+                 connection_obj.close()
+                 raise TypeError(f"All entries must be instances of {cls.__name__}")
 
-            for field_name, field in cls._fields.items():
-                if isinstance(field, ForeignKey) or isinstance(field, OneToOneField):
-                    value = entry[field_name]
-                    if isinstance(value, dict):
-                        related_id = value.get('id')
+
+            for model_field_name, db_field_name in zip(field_names_model, field_names_db):
+                field = cls._fields[model_field_name]
+                value = None
+
+                if is_dict_input:
+                    raw_value = entry.get(model_field_name) # Use .get for safety
+                    if isinstance(field, (ForeignKey, OneToOneField)):
+                        # Handle dicts, instances, or direct IDs passed in the dictionary
+                        if isinstance(raw_value, dict):
+                            value = raw_value.get('id')
+                        elif isinstance(raw_value, BaseModel):
+                             value = getattr(raw_value, 'id', None)
+                        else: # Assume it's the ID
+                            value = raw_value
                     else:
-                        related_id = value
+                        value = raw_value
+                else: # is_model_instance_input
+                    raw_value = getattr(entry, model_field_name, None)
+                    if isinstance(field, (ForeignKey, OneToOneField)):
+                        # Get the id from the related model instance
+                        value = getattr(raw_value, 'id', None) if raw_value else None
+                    else:
+                        value = raw_value
 
-                    if isinstance(field, OneToOneField):
-                        check_query = f"SELECT COUNT(*) FROM {cls.__name__.lower()} WHERE {field_name}_id = ?"
-                        cursor_obj.execute(check_query, (related_id,))
-                        if cursor_obj.fetchone()[0] > 0:
-                            raise ValueError(
-                                f"Duplicate entry detected for {field_name} (OneToOneField) with id {related_id}")
+                # OneToOne check (applies to both dict and instance inputs)
+                if isinstance(field, OneToOneField) and value is not None:
+                    check_query = f"SELECT COUNT(*) FROM {cls.__name__.lower()} WHERE {db_field_name} = ?"
+                    cursor_obj.execute(check_query, (value,))
+                    if cursor_obj.fetchone()[0] > 0:
+                        connection_obj.rollback() # Rollback before raising
+                        connection_obj.close()
+                        raise ValueError(
+                            f"Duplicate entry detected for {model_field_name} (OneToOneField) with id {value}")
 
-                    row.append(related_id)
-                else:
-                    row.append(entry[field_name])
+                row.append(value)
 
             values.append(tuple(row))
         try:
@@ -117,7 +181,8 @@ class BaseModel(metaclass=ModelMeta):
             print(
                 f"Successfully inserted {len(entries)} entries into {cls.__name__}")
         except Exception as e:
-            raise
+            connection_obj.rollback() # Rollback on error
+            raise # Re-raise the exception
         finally:
             connection_obj.close()
 

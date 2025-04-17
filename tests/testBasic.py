@@ -32,11 +32,33 @@ class TestCreateTable(unittest.TestCase):
     """
     @classmethod
     def setUpClass(cls):
-        """Set up the database and create the table before running tests."""
+        """Set up the database and create the table once before all tests."""
         if not os.path.exists('databases'):
             os.makedirs('databases')
+        # Only create the table here
         Student.create_table()
 
+    def setUp(self):
+        """Insert fresh data and reset sequence before each test."""
+        # Clear any data from previous tests first
+        Student.delete_entries({}, confirm=True)
+
+        # Reset the auto-increment sequence for the student table
+        connection = sqlite3.connect(DB_PATH)
+        cursor = connection.cursor()
+        try:
+            # This command resets the counter for the specified table
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name=?;", (Student.__name__.lower(),))
+            connection.commit()
+        except sqlite3.OperationalError as e:
+            # Handle case where sqlite_sequence table might not exist yet (e.g., first run)
+            # or if the table wasn't using AUTOINCREMENT (though it should be)
+            print(f"Info: Could not reset sequence for {Student.__name__.lower()} - {e}")
+            connection.rollback() # Rollback any potential transaction state change
+        finally:
+            connection.close()
+
+        # Insert the standard test data - IDs should now start from 1
         Student.insert_entries([
             {"name": "Yehor Boiar", "degree": "Computer Science"},
             {"name": "Anastasia Martison", "degree": "Computer Science"}
@@ -75,16 +97,15 @@ class TestCreateTable(unittest.TestCase):
         connection.close()
 
     def test_populate_schema(self):
+        # This test now verifies the data inserted by setUp
         connection = sqlite3.connect(DB_PATH)
-
         cursor = connection.cursor()
-        cursor.execute("SELECT * FROM student")
-
+        cursor.execute("SELECT id, name, degree FROM student ORDER BY id") # Order by ID for consistency
         students = cursor.fetchall()
+        # Adjust expected IDs if delete/insert changes auto-increment behavior across tests
+        # Assuming fresh inserts start from 1 each time due to delete_entries in setUp
         expected_entries = [(1, 'Yehor Boiar', 'Computer Science'), (2, 'Anastasia Martison', 'Computer Science')]
-
-        self.assertEqual(students, expected_entries, "Table schema does not match expected schema.")
-
+        self.assertEqual(students, expected_entries, "Data inserted in setUp does not match expected.")
         connection.close()
 
     def test_slicing(self):
@@ -183,6 +204,72 @@ class TestCreateTable(unittest.TestCase):
         with self.assertRaises(ValueError):
             Student.objects.filter(name__invalid_lookup="value").all()
     
+    def test_insert_model_instances(self):
+        """Test inserting data using BaseModel instances."""
+        # setUp already ran and inserted data, but this test needs a clean slate
+        # So, the delete here is still useful.
+        Student.delete_entries({}, confirm=True)
+
+        # Create model instances
+        student1 = Student(name="Instance User1", degree="Physics")
+        student2 = Student(name="Instance User2", degree="Chemistry")
+
+        # Insert using model instances
+        Student.insert_entries([student1, student2])
+
+        # Verify insertion
+        connection = sqlite3.connect(DB_PATH)
+        cursor = connection.cursor()
+        cursor.execute("SELECT name, degree FROM student ORDER BY name")
+        students = cursor.fetchall()
+        connection.close()
+
+        expected_entries = [
+            ('Instance User1', 'Physics'),
+            ('Instance User2', 'Chemistry')
+        ]
+        self.assertEqual(students, expected_entries, "Inserting model instances failed.")
+
+    def test_insert_mixed_types_raises_error(self):
+        """Test that inserting a mix of dicts and instances raises TypeError."""
+        # setUp inserted data, delete it for this specific test scenario
+        Student.delete_entries({}, confirm=True) # Clean slate
+        student_instance = Student(name="Test Instance", degree="Biology")
+        student_dict = {"name": "Test Dict", "degree": "Geology"}
+
+        with self.assertRaisesRegex(TypeError, "All entries must be dictionaries."):
+             # The error message depends on which type is first in the list
+             # If dict is first, it expects all dicts.
+            Student.insert_entries([student_dict, student_instance])
+
+        with self.assertRaisesRegex(TypeError, "All entries must be BaseModel instances."):
+             # If instance is first, it expects all instances.
+            Student.insert_entries([student_instance, student_dict])
+
+    def test_insert_wrong_instance_type_raises_error(self):
+        """Test that inserting instances of a different model raises TypeError."""
+        # Define another simple model for testing purposes
+        class Course(base.BaseModel):
+            title = datatypes.CharField()
+        # Ensure Course table exists if it doesn't (idempotent)
+        Course.create_table()
+
+        # setUp inserted Student data, delete it for this specific test scenario
+        Student.delete_entries({}, confirm=True) # Clean slate for Student table
+        wrong_instance = Course(title="Introduction to Testing")
+        student_instance = Student(name="Correct Student", degree="Testing")
+
+        with self.assertRaisesRegex(TypeError, f"All entries must be instances of {Student.__name__}"):
+            Student.insert_entries([student_instance, wrong_instance])
+
+        # Clean up the Course table (optional, but good practice)
+        if os.path.exists(DB_PATH):
+            connection = sqlite3.connect(DB_PATH)
+            cursor = connection.cursor()
+            cursor.execute("DROP TABLE IF EXISTS course")
+            connection.commit()
+            connection.close()
+
     @classmethod
     def tearDownClass(cls):
         """Clean up the database after tests."""
@@ -192,4 +279,4 @@ class TestCreateTable(unittest.TestCase):
             os.rmdir('databases')
 
 if __name__ == '__main__':
-    unittest.main() 
+    unittest.main()

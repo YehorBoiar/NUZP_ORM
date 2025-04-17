@@ -3,11 +3,11 @@ from myapp.test import Student, Course
 if __name__ == "__main__":
     # Insert sample students
     students = [
-        {"name": "John Smith"},
-        {"name": "Emma Johnson"},
-        {"name": "Michael Davis"},
-        {"name": "Sophia Martinez"},
-        {"name": "William Thompson"}
+        Student(name="John Smith"),
+        Student(name="Emma Johnson"),
+        Student(name="Michael Davis"),
+        Student(name="Sophia Martinez"),
+        Student(name="William Thompson")
     ]
     Student.insert_entries(students)
 
