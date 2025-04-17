@@ -89,21 +89,40 @@ class BaseModel(metaclass=ModelMeta):
 
     # TODO: M2M and insert entries are separate functions. Merge them.
     @classmethod
-    def insert_entries(cls, entries):
+    def _validate_insert_input(cls, entries) -> bool:
+        """
+        Validate the list of entries for insertion.
+        
+        Returns True if entries are dictionaries, False if they are model instances.
+        Raises TypeError if entries are neither dictionaries nor model instances.
+        """
         if not entries:
             print("No entries provided to insert.")
-            return # Nothing to insert
+            return None, None # Indicate no processing needed
 
-        if not os.path.exists(DB_PATH):
-            raise ValueError(f"Database for {cls.__name__} does not exist!")
+        first_entry = entries[0]
+        is_dict_input = isinstance(first_entry, dict)
+        is_model_instance_input = isinstance(first_entry, BaseModel)
 
-        connection_obj = sqlite3.connect(DB_PATH)
-        cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("PRAGMA foreign_keys = ON;")
+        if not is_dict_input and not is_model_instance_input:
+             raise TypeError("Entries must be a list of dictionaries or BaseModel instances.")
 
-        field_names_db = [] # Field names as they appear in the DB (e.g., 'author_id')
-        field_names_model = [] # Field names as they appear in the Model (e.g., 'author')
+        # Check type consistency
+        for entry in entries:
+            if is_dict_input and not isinstance(entry, dict):
+                raise TypeError("All entries must be dictionaries.")
+            if is_model_instance_input and not isinstance(entry, BaseModel):
+                raise TypeError("All entries must be BaseModel instances.")
+            if is_model_instance_input and not isinstance(entry, cls):
+                 raise TypeError(f"All entries must be instances of {cls.__name__}")
 
+        return is_dict_input
+
+    @classmethod
+    def _prepare_insert_sql(cls):
+        """Prepare SQL query components for insertion."""
+        field_names_db = []
+        field_names_model = []
         for field_name, field in cls._fields.items():
             field_names_model.append(field_name)
             if isinstance(field, (ForeignKey, OneToOneField)):
@@ -114,77 +133,109 @@ class BaseModel(metaclass=ModelMeta):
         placeholders = ", ".join(["?" for _ in field_names_db])
         columns = ", ".join(field_names_db)
         query = f"INSERT INTO {cls.__name__.lower()} ({columns}) VALUES ({placeholders})"
+        return field_names_model, field_names_db, query
 
+    @classmethod
+    def _extract_value_for_db(cls, entry, model_field_name, field, is_dict_input):
+        """Extract and process a single value from an entry for DB insertion."""
+        value = None
+        if is_dict_input:
+            raw_value = entry.get(model_field_name)
+            if isinstance(field, (ForeignKey, OneToOneField)):
+                if isinstance(raw_value, dict):
+                    value = raw_value.get('id')
+                elif isinstance(raw_value, BaseModel):
+                     value = getattr(raw_value, 'id', None)
+                else: # Assume it's the ID
+                    value = raw_value
+            else:
+                value = raw_value
+        else: # is_model_instance_input
+            raw_value = getattr(entry, model_field_name, None)
+            if isinstance(field, (ForeignKey, OneToOneField)):
+                value = getattr(raw_value, 'id', None) if raw_value else None
+            else:
+                value = raw_value
+        return value
+
+    @classmethod
+    def _check_onetoone_constraint(cls, cursor_obj, db_field_name, model_field_name, value):
+        """Check for OneToOne constraint violation."""
+        check_query = f"SELECT COUNT(*) FROM {cls.__name__.lower()} WHERE {db_field_name} = ?"
+        cursor_obj.execute(check_query, (value,))
+        if cursor_obj.fetchone()[0] > 0:
+            raise ValueError(
+                f"Duplicate entry detected for {model_field_name} (OneToOneField) with id {value}")
+
+    @classmethod
+    def _process_entries_for_values(cls, entries, is_dict_input, field_names_model, field_names_db, cursor_obj):
+        """Process all entries to generate the list of value tuples for executemany."""
         values = []
-        first_entry = entries[0]
-        is_dict_input = isinstance(first_entry, dict)
-        is_model_instance_input = isinstance(first_entry, BaseModel)
-
-        if not is_dict_input and not is_model_instance_input:
-             connection_obj.close()
-             raise TypeError("Entries must be a list of dictionaries or BaseModel instances.")
-
         for entry in entries:
             row = []
-            # Ensure all entries are of the same type as the first one
-            if is_dict_input and not isinstance(entry, dict):
-                connection_obj.close()
-                raise TypeError("All entries must be dictionaries.")
-            if is_model_instance_input and not isinstance(entry, BaseModel):
-                connection_obj.close()
-                raise TypeError("All entries must be BaseModel instances.")
-            if is_model_instance_input and not isinstance(entry, cls):
-                 connection_obj.close()
-                 raise TypeError(f"All entries must be instances of {cls.__name__}")
-
-
             for model_field_name, db_field_name in zip(field_names_model, field_names_db):
                 field = cls._fields[model_field_name]
-                value = None
+                value = cls._extract_value_for_db(entry, model_field_name, field, is_dict_input)
 
-                if is_dict_input:
-                    raw_value = entry.get(model_field_name) # Use .get for safety
-                    if isinstance(field, (ForeignKey, OneToOneField)):
-                        # Handle dicts, instances, or direct IDs passed in the dictionary
-                        if isinstance(raw_value, dict):
-                            value = raw_value.get('id')
-                        elif isinstance(raw_value, BaseModel):
-                             value = getattr(raw_value, 'id', None)
-                        else: # Assume it's the ID
-                            value = raw_value
-                    else:
-                        value = raw_value
-                else: # is_model_instance_input
-                    raw_value = getattr(entry, model_field_name, None)
-                    if isinstance(field, (ForeignKey, OneToOneField)):
-                        # Get the id from the related model instance
-                        value = getattr(raw_value, 'id', None) if raw_value else None
-                    else:
-                        value = raw_value
-
-                # OneToOne check (applies to both dict and instance inputs)
                 if isinstance(field, OneToOneField) and value is not None:
-                    check_query = f"SELECT COUNT(*) FROM {cls.__name__.lower()} WHERE {db_field_name} = ?"
-                    cursor_obj.execute(check_query, (value,))
-                    if cursor_obj.fetchone()[0] > 0:
-                        connection_obj.rollback() # Rollback before raising
-                        connection_obj.close()
-                        raise ValueError(
-                            f"Duplicate entry detected for {model_field_name} (OneToOneField) with id {value}")
+                    try:
+                        cls._check_onetoone_constraint(cursor_obj, db_field_name, model_field_name, value)
+                    except ValueError as e:
+                        # Re-raise with more context or handle as needed
+                        raise ValueError(f"Error processing entry {entry}: {e}") from e
 
                 row.append(value)
-
             values.append(tuple(row))
+        return values
+
+    @classmethod
+    def _execute_insert(cls, connection_obj, cursor_obj, query, values):
+        """Execute the insert query and handle commit/rollback."""
         try:
             cursor_obj.executemany(query, values)
             connection_obj.commit()
-            print(
-                f"Successfully inserted {len(entries)} entries into {cls.__name__}")
+            print(f"Successfully inserted {len(values)} entries into {cls.__name__}")
         except Exception as e:
-            connection_obj.rollback() # Rollback on error
-            raise # Re-raise the exception
+            connection_obj.rollback()
+            print(f"Error during bulk insert into {cls.__name__}: {e}") # Log or print error
+            raise # Re-raise the exception after rollback
+
+    @classmethod
+    def insert_entries(cls, entries):
+        is_dict_input = cls._validate_insert_input(entries)
+
+        if not os.path.exists(DB_PATH):
+            raise ValueError(f"Database for {cls.__name__} does not exist!")
+
+        connection_obj = None # Initialize to None for finally block
+        try:
+            connection_obj = sqlite3.connect(DB_PATH)
+            cursor_obj = connection_obj.cursor()
+            cursor_obj.execute("PRAGMA foreign_keys = ON;")
+
+            field_names_model, field_names_db, query = cls._prepare_insert_sql()
+
+            # Wrap value processing and execution in a try block associated with the connection
+            values = cls._process_entries_for_values(
+                entries, is_dict_input, field_names_model, field_names_db, cursor_obj
+            )
+
+            cls._execute_insert(connection_obj, cursor_obj, query, values)
+
+        except Exception as e:
+            # Catch potential errors during validation, SQL prep, or processing
+            # Rollback might be needed if error occurred after connection started
+            if connection_obj:
+                try:
+                    connection_obj.rollback()
+                except Exception as rb_e:
+                    print(f"Error during rollback: {rb_e}") # Log rollback error
+            print(f"Failed to insert entries into {cls.__name__}: {e}") # Log or print error
+            # Re-raise the original exception to signal failure
+            raise
         finally:
-            connection_obj.close()
+            if connection_obj:
+                connection_obj.close()
 
     @classmethod
     def delete_entries(cls, conditions, confirm=False):
