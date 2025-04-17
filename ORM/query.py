@@ -75,20 +75,19 @@ class QuerySet:
             limit_val=REPR_OUTPUT_SIZE + 1, # Fetch one extra
             offset_val=self.offset_val
         )
-        return qs_limited._execute() # Returns list of dicts currently
+        # _execute now returns instances
+        return qs_limited._execute()
 
     def __repr__(self):
         """Return a string representation of the QuerySet, showing limited results."""
+        # _fetch_for_repr now returns instances
         data = self._fetch_for_repr()
         # Check if there were more results than the limit
         has_more = len(data) > REPR_OUTPUT_SIZE
         # Slice data to the display limit
         data_to_display = data[:REPR_OUTPUT_SIZE]
 
-        # Convert dicts to model instances for better repr (if .get() returned objects)
-        # Since _execute currently returns dicts, we'll represent them as dicts for now.
-        # Ideally, _execute would return model instances.
-        # For now, just format the list of dicts.
+        # Use the __repr__ of the model instances
         items_repr = ",\n ".join(repr(item) for item in data_to_display)
 
         if has_more:
@@ -104,6 +103,8 @@ class QuerySet:
         Returns:
             str: The constructed SQL query.
         """
+        # Ensure SELECT * selects all necessary columns, including foreign key IDs
+        # SELECT * should be fine as FKs are stored as *_id columns.
         query = f"SELECT * FROM {self.model.__name__.lower()}"
         if self.where_clause:
             query += " WHERE " + self.where_clause
@@ -120,21 +121,28 @@ class QuerySet:
 
     def _execute(self):
         """
-        Executes the constructed SQL query and returns the results.
-
-        Returns:
-            list: A list of dictionaries, where each dictionary represents a row in the result set.
+        Executes the constructed SQL query and returns the results
+        as a list of model instances.
         """
         query = self._build_query()
         connection_obj = sqlite3.connect(DB_PATH)
         connection_obj.execute("PRAGMA foreign_keys = ON;")
+        # Set row_factory to create dictionaries directly
+        connection_obj.row_factory = sqlite3.Row
         cursor_obj = connection_obj.cursor()
         cursor_obj.execute(query, tuple(self.parameters))
-        column_names = [desc[0] for desc in cursor_obj.description]
-        results = [dict(zip(column_names, row))
-                   for row in cursor_obj.fetchall()]
+
+        # Fetch rows as dictionaries
+        results_as_dicts = [dict(row) for row in cursor_obj.fetchall()]
         connection_obj.close()
-        return results
+
+        # Convert dictionaries to model instances
+        instances = []
+        for row_dict in results_as_dicts:
+            instance = self.model(**row_dict)
+            instances.append(instance)
+
+        return instances
 
     def sanitize_field_name(self, field_name):
         """
@@ -223,24 +231,27 @@ class QuerySet:
 
     def get(self, **conditions):
         """
-        Returns a single record matching the specified conditions.
+        Returns a single model instance matching the specified conditions.
 
         Args:
             **conditions: Keyword arguments representing the field names and values to filter by.
 
         Returns:
-            dict: A dictionary representing the matching record.
+            BaseModel: A model instance representing the matching record.
 
         Raises:
             Exception: If no matching record is found or if multiple records are found.
         """
+        # Limit to 2 to detect multiple objects
         qs = self.filter(**conditions).limit(2)
+        # _execute now returns instances
         results = qs._execute()
         if len(results) == 0:
-            raise Exception("DoesNotExist: No matching record found.")
+            raise Exception(f"{self.model.__name__}.DoesNotExist: No matching record found for {conditions}.")
         elif len(results) > 1:
             raise Exception(
-                "MultipleObjectsReturned: More than one record found.")
+                f"{self.model.__name__}.MultipleObjectsReturned: More than one record found for {conditions}.")
+        # Return the single instance
         return results[0]
 
     def order_by(self, *fields):
@@ -287,47 +298,38 @@ class QuerySet:
 
     def all(self):
         """
-        Executes the query and returns all results.
-
-        Returns:
-            list: A list of dictionaries, where each dictionary represents a row in the result set.
+        Executes the query and returns all results as a list of model instances.
         """
+        # _execute now returns instances
         return self._execute()
 
     def __iter__(self):
         """
-        Allows iteration over the results.
-
-        Returns:
-            iter: An iterator over the results.
+        Allows iteration over the results (model instances).
         """
+        # _execute now returns instances
         return iter(self._execute())
 
     def __getitem__(self, index):
         """
-        Retrieves a specific result or slice of results.
-
-        Args:
-            index (int or slice): The index or slice to retrieve.
-
-        Returns:
-            dict or list: A dictionary representing a single result or a list of dictionaries.
-
-        Raises:
-            IndexError: If the index is out of range.
-            TypeError: If the index is not an integer or slice.
+        Retrieves a specific result (model instance) or slice of results (list of instances).
         """
         if isinstance(index, slice):
             offset = index.start if index.start is not None else 0
             limit_val = index.stop - offset if index.stop is not None else None
+            # Create a new QuerySet for the slice
             qs = QuerySet(self.model, self.where_clause,
                           self.parameters, self.order_clause, limit_val, offset)
+            # _execute returns instances
             return qs._execute()
         elif isinstance(index, int):
+            # Create a new QuerySet for the single item
             qs = QuerySet(self.model, self.where_clause,
                           self.parameters, self.order_clause, 1, index)
+            # _execute returns a list of instances
             result = qs._execute()
             if result:
+                # Return the single instance
                 return result[0]
             raise IndexError("Index out of range")
         else:

@@ -42,10 +42,10 @@ class TestOneToManyRelationship(unittest.TestCase):
         customer = Customers.objects.get(name="Yehor")
         # Insert multiple orders for the customer
         Orders.insert_entries([
-            {"item": "item1", "customer": customer["id"]},
-            {"item": "item2", "customer": customer["id"]},
-            {"item": "item3", "customer": customer["id"]},
-            {"item": "item4", "customer": customer["id"]}
+            {"item": "item1", "customer": customer.id},
+            {"item": "item2", "customer": customer.id},
+            {"item": "item3", "customer": customer.id},
+            {"item": "item4", "customer": customer.id}
         ])
 
     def test_customer_orders(self):
@@ -53,7 +53,7 @@ class TestOneToManyRelationship(unittest.TestCase):
         customer = Customers.objects.get(id=1)
 
         # Fetch all orders for the customer
-        orders = Orders.objects.filter(customer_id=customer["id"]).all()
+        orders = Orders.objects.filter(customer_id=customer.id).all()
 
         # Assert that the customer has 4 orders
         self.assertEqual(len(orders), 4)

@@ -57,6 +57,20 @@ class BaseModel(metaclass=ModelMeta):
         pk = self.id if self.id is not None else '(unsaved)'
         return f"<{self.__class__.__name__}: {pk}>"
 
+    def as_dict(self):
+        """Return a dictionary representation of the model instance."""
+        data = {'id': self.id}
+        for field_name in self._fields:
+            # For ForeignKey/OneToOneField, store the related object's ID
+            field = self._fields[field_name]
+            if isinstance(field, (ForeignKey, OneToOneField)):
+                related_obj = getattr(self, field_name, None)
+                data[field_name + '_id'] = related_obj.id if related_obj and related_obj.id is not None else None
+            else:
+                data[field_name] = getattr(self, field_name, None)
+        # TODO: M2M fields are not included in this basic dict representation
+        return data
+
     @classmethod
     def create_table(cls):
         if not os.path.exists('databases'):
