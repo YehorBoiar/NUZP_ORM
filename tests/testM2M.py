@@ -6,6 +6,8 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ORM import base, datatypes
+# Import QuerySet to check return types if needed
+from ORM.query import QuerySet
 
 DB_PATH = "databases/main.sqlite3"
 
@@ -24,187 +26,227 @@ class CustomBook(base.BaseModel):
 class TestManyToManyRelationships(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Create tables
+        # Create tables only once
+        if not os.path.exists('databases'):
+            os.makedirs('databases')
         Author.create_table()
         Book.create_table()
-        CustomBook.create_table()
-
-        # Insert test data
-        Author.insert_entries([
-            {"name": "J.K. Rowling"},
-            {"name": "George Orwell"},
-            {"name": "Agatha Christie"}
-        ])
-        
-        Book.insert_entries([
-            {"title": "Harry Potter"},
-            {"title": "1984"}
-        ])
+        CustomBook.create_table() # Ensure custom junction table is created
 
     def setUp(self):
-        """Clean up all tables before each test."""
+        """Clean up tables and insert fresh base data using instances before each test."""
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("DELETE FROM book_author")
-        cursor_obj.execute("DELETE FROM customjunction")
+        cursor_obj.execute("PRAGMA foreign_keys = ON;")
+        # Clear junction tables first
+        try: cursor_obj.execute("DELETE FROM book_author")
+        except sqlite3.OperationalError: pass # Ignore if table doesn't exist yet
+        try: cursor_obj.execute("DELETE FROM customjunction")
+        except sqlite3.OperationalError: pass # Ignore if table doesn't exist yet
+        # Clear main tables
         cursor_obj.execute("DELETE FROM author")
         cursor_obj.execute("DELETE FROM book")
         cursor_obj.execute("DELETE FROM custombook")
+        # Reset sequences
+        try:
+            cursor_obj.execute("DELETE FROM sqlite_sequence WHERE name IN ('author', 'book', 'custombook')")
+        except sqlite3.OperationalError: pass # Ignore if sequence table doesn't exist
         connection_obj.commit()
         connection_obj.close()
-        
-        # Reinsert base data
-        Author.insert_entries([
-            {"name": "J.K. Rowling"},
-            {"name": "George Orwell"},
-            {"name": "Agatha Christie"}
-        ])
-        Book.insert_entries([
-            {"title": "Harry Potter"},
-            {"title": "1984"}
-        ])
 
-    
+        # Reinsert base data using instances (IDs will be updated)
+        self.rowling = Author(name="J.K. Rowling")
+        self.orwell = Author(name="George Orwell")
+        self.christie = Author(name="Agatha Christie")
+        Author.insert_entries([self.rowling, self.orwell, self.christie])
+
+        self.harry_potter = Book(title="Harry Potter")
+        self.nineteen_eighty_four = Book(title="1984")
+        Book.insert_entries([self.harry_potter, self.nineteen_eighty_four])
+
     def test_add_m2m_relationship(self):
-        """Test adding authors to a book."""
-        # Retrieve records as dictionaries
-        rowling = Author.objects.get(name="J.K. Rowling")
-        harry_potter = Book.objects.get(title="Harry Potter")
+        """Test adding authors to a book using instance manager."""
+        # Use instances from setUp
+        rowling = self.rowling
+        harry_potter = self.harry_potter
 
-        # Add J.K. Rowling to Harry Potter
-        Book.add_m2m('authors', harry_potter, rowling)
+        # Add J.K. Rowling to Harry Potter using the instance manager
+        harry_potter.authors.add(rowling)
 
-        # Retrieve authors for Harry Potter
-        harry_authors = Book.get_m2m('authors', harry_potter)
+        # Retrieve authors for Harry Potter (should return Author instances via QuerySet)
+        harry_authors_qs = harry_potter.authors.all()
+        self.assertIsInstance(harry_authors_qs, QuerySet)
+        harry_authors = list(harry_authors_qs) # Execute QuerySet
         self.assertEqual(len(harry_authors), 1)
-        self.assertEqual(harry_authors[0]["name"], "J.K. Rowling")
+        self.assertIsInstance(harry_authors[0], Author)
+        self.assertEqual(harry_authors[0].name, "J.K. Rowling")
+        self.assertEqual(harry_authors[0].id, rowling.id)
 
     def test_remove_m2m_relationship(self):
-        """Test removing an author from a book."""
-        # Retrieve records as dictionaries
-        rowling = Author.objects.get(name="J.K. Rowling")
-        harry_potter = Book.objects.get(title="Harry Potter")
+        """Test removing an author from a book using instance manager."""
+        # Use instances from setUp
+        rowling = self.rowling
+        harry_potter = self.harry_potter
 
         # Add and then remove J.K. Rowling from Harry Potter
-        Book.add_m2m('authors', harry_potter, rowling)
-        Book.remove_m2m('authors', harry_potter, rowling)
+        harry_potter.authors.add(rowling)
+        harry_potter.authors.remove(rowling)
 
         # Retrieve authors for Harry Potter
-        harry_authors = Book.get_m2m('authors', harry_potter)
+        harry_authors = list(harry_potter.authors.all())
         self.assertEqual(len(harry_authors), 0)
 
     def test_m2m_relationship_uniqueness(self):
-        """Test that the same relationship cannot be added twice."""
-        # Retrieve records as dictionaries
-        rowling = Author.objects.get(name="J.K. Rowling")
-        harry_potter = Book.objects.get(title="Harry Potter")
+        """Test that the same relationship cannot be added twice via manager."""
+        # Use instances from setUp
+        rowling = self.rowling
+        harry_potter = self.harry_potter
 
-        # Add J.K. Rowling to Harry Potter twice
-        Book.add_m2m('authors', harry_potter, rowling)
-        Book.add_m2m('authors', harry_potter, rowling)
+        # Add J.K. Rowling to Harry Potter twice (second add should be ignored)
+        harry_potter.authors.add(rowling)
+        harry_potter.authors.add(rowling) # Should be ignored due to INSERT OR IGNORE
 
         # Retrieve authors for Harry Potter
-        harry_authors = Book.get_m2m('authors', harry_potter)
+        harry_authors = list(harry_potter.authors.all())
         self.assertEqual(len(harry_authors), 1)  # Should only have one entry
-    
+
     def test_m2m_cascade_delete_source(self):
         """Test M2M relationships are deleted when source is deleted."""
-        # Add relationship
-        rowling = Author.objects.get(name="J.K. Rowling")
-        harry_potter = Book.objects.get(title="Harry Potter")
-        Book.add_m2m('authors', harry_potter, rowling)
+        # Use instances from setUp
+        rowling = self.rowling
+        harry_potter = self.harry_potter
+        harry_potter.authors.add(rowling)
+        hp_id = harry_potter.id # Store ID before deleting
 
-        # Delete source record
-        Book.delete_entries(harry_potter)
+        # Delete source record (Book instance)
+        Book.delete_entries({'id': hp_id}) # Pass condition dict
 
-        # Verify relationships are gone
+        # Verify relationships are gone from junction table
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("SELECT * FROM book_author WHERE book_id = ?", (harry_potter["id"],))
+        cursor_obj.execute("SELECT * FROM book_author WHERE book_id = ?", (hp_id,))
         self.assertEqual(len(cursor_obj.fetchall()), 0)
         connection_obj.close()
 
     def test_m2m_cascade_delete_target(self):
         """Test M2M relationships are deleted when target is deleted."""
-        # Add relationship
-        rowling = Author.objects.get(name="J.K. Rowling")
-        harry_potter = Book.objects.get(title="Harry Potter")
-        Book.add_m2m('authors', harry_potter, rowling)
+        # Use instances from setUp
+        rowling = self.rowling
+        harry_potter = self.harry_potter
+        harry_potter.authors.add(rowling)
+        rowling_id = rowling.id # Store ID before deleting
 
-        # Delete target record
-        Author.delete_entries(rowling)
+        # Delete target record (Author instance)
+        Author.delete_entries({'id': rowling_id}) # Pass condition dict
 
-        # Verify relationships are gone
+        # Verify relationships are gone from junction table
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("SELECT * FROM book_author WHERE author_id = ?", (rowling["id"],))
+        cursor_obj.execute("SELECT * FROM book_author WHERE author_id = ?", (rowling_id,))
         self.assertEqual(len(cursor_obj.fetchall()), 0)
         connection_obj.close()
 
+        # Also verify trying to access via manager reflects the deletion
+        # Re-fetch harry_potter as the original instance might be stale if caching were involved
+        harry_potter_refetched = Book.objects.get(id=harry_potter.id)
+        remaining_authors = list(harry_potter_refetched.authors.all())
+        self.assertEqual(len(remaining_authors), 0)
+
+
     def test_m2m_custom_junction_table(self):
-        """Test M2M relationships with custom junction table."""
-        # Create records
-        rowling = Author.objects.get(name="J.K. Rowling")
-        CustomBook.insert_entries([{"title": "Custom Book"}])
-        custom_book = CustomBook.objects.get(title="Custom Book")
-        # Add relationship
-        CustomBook.add_m2m('authors', custom_book, rowling)
+        """Test M2M relationships with custom junction table using manager."""
+        # Use instance from setUp
+        rowling = self.rowling
+        # Create CustomBook instance
+        custom_book_inst = CustomBook(title="Custom Book")
+        CustomBook.insert_entries([custom_book_inst]) # Insert and update ID
+
+        # Add relationship using instance manager
+        custom_book_inst.authors.add(rowling)
 
         # Verify relationship exists in custom table
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
-        cursor_obj.execute("SELECT * FROM customjunction")
+        cursor_obj.execute("SELECT * FROM customjunction WHERE custombook_id = ? AND author_id = ?", (custom_book_inst.id, rowling.id))
         self.assertEqual(len(cursor_obj.fetchall()), 1)
         connection_obj.close()
 
-    def test_m2m_invalid_relationship(self):
-        """Test adding relationship with non-existent record."""
-        invalid_author = {"id": 999, "name": "Invalid Author"}
-        harry_potter = Book.objects.get(title="Harry Potter")
+        # Verify retrieval via manager's all()
+        authors = list(custom_book_inst.authors.all())
+        self.assertEqual(len(authors), 1)
+        self.assertEqual(authors[0].id, rowling.id)
+        self.assertEqual(authors[0].name, rowling.name)
 
-        with self.assertRaises(ValueError):
-            Book.add_m2m('authors', harry_potter, invalid_author)
+    def test_m2m_invalid_relationship(self):
+        """Test adding relationship with non-existent target ID using manager."""
+        # Create an Author instance but don't save it (no ID)
+        unsaved_author = Author(name="Unsaved Author")
+        harry_potter = self.harry_potter # Use instance from setUp
+
+        # Adding unsaved instance should raise ValueError
+        with self.assertRaisesRegex(ValueError, "Cannot add unsaved 'author' instance"):
+            harry_potter.authors.add(unsaved_author)
+
+        # Create an Author instance with a fake ID that doesn't exist in DB
+        invalid_author = Author(id=999, name="Invalid Author")
+        # Adding instance with non-existent ID should raise ValueError (due to FK constraint)
+        with self.assertRaisesRegex(ValueError, "Invalid target ID"):
+            harry_potter.authors.add(invalid_author)
+
 
     def test_remove_nonexistent_relationship(self):
-        """Test removing a relationship that doesn't exist."""
-        rowling = Author.objects.get(name="J.K. Rowling")
-        harry_potter = Book.objects.get(title="Harry Potter")
+        """Test removing a relationship that doesn't exist using manager."""
+        # Use instances from setUp
+        rowling = self.rowling
+        harry_potter = self.harry_potter
 
         # Should complete without errors
-        Book.remove_m2m('authors', harry_potter, rowling)
-        harry_authors = Book.get_m2m('authors', harry_potter)
+        harry_potter.authors.remove(rowling)
+        harry_authors = list(harry_potter.authors.all())
         self.assertEqual(len(harry_authors), 0)
 
     def test_m2m_multiple_operations(self):
-        """Test complex add/remove sequences."""
-        rowling = Author.objects.get(name="J.K. Rowling")
-        orwell = Author.objects.get(name="George Orwell")
-        harry_potter = Book.objects.get(title="Harry Potter")
+        """Test complex add/remove sequences using manager."""
+        # Use instances from setUp
+        rowling = self.rowling
+        orwell = self.orwell
+        harry_potter = self.harry_potter
 
-        # Add two authors
-        Book.add_m2m('authors', harry_potter, rowling)
-        Book.add_m2m('authors', harry_potter, orwell)
-        self.assertEqual(len(Book.get_m2m('authors', harry_potter)), 2)
+        # Add two authors (can add multiple at once)
+        harry_potter.authors.add(rowling, orwell)
+        authors = list(harry_potter.authors.all())
+        self.assertEqual(len(authors), 2)
+        author_ids = {a.id for a in authors}
+        self.assertIn(rowling.id, author_ids)
+        self.assertIn(orwell.id, author_ids)
 
         # Remove one author
-        Book.remove_m2m('authors', harry_potter, rowling)
-        authors = Book.get_m2m('authors', harry_potter)
+        harry_potter.authors.remove(rowling)
+        authors = list(harry_potter.authors.all())
         self.assertEqual(len(authors), 1)
-        self.assertEqual(authors[0]["name"], "George Orwell")
+        self.assertEqual(authors[0].id, orwell.id)
+        self.assertEqual(authors[0].name, "George Orwell")
 
     def test_empty_relationships(self):
-        """Test retrieving relationships when none exist."""
-        harry_potter = Book.objects.get(title="Harry Potter")
-        authors = Book.get_m2m('authors', harry_potter)
+        """Test retrieving relationships when none exist using manager."""
+        # Use instance from setUp
+        harry_potter = self.harry_potter
+        authors_qs = harry_potter.authors.all()
+        self.assertIsInstance(authors_qs, QuerySet)
+        authors = list(authors_qs)
         self.assertEqual(len(authors), 0)
 
     @classmethod
     def tearDownClass(cls):
-        """Clean up the database after tests."""
+        """Clean up the database file after all tests."""
         if os.path.exists(DB_PATH):
             os.remove(DB_PATH)
+        # Attempt to remove directory if empty
         if os.path.exists('databases'):
-            os.rmdir('databases')
+            try:
+                os.rmdir('databases')
+            except OSError:
+                pass # Ignore if not empty
 
 if __name__ == '__main__':
     unittest.main()

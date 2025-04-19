@@ -57,10 +57,10 @@ class TestOneToManyRelationship(unittest.TestCase):
 
         # Assert that the customer has 4 orders
         self.assertEqual(len(orders), 4)
-        self.assertEqual(orders[0]["item"], "item1")
-        self.assertEqual(orders[1]["item"], "item2")
-        self.assertEqual(orders[2]["item"], "item3")
-        self.assertEqual(orders[3]["item"], "item4")
+        self.assertEqual(orders[0].item, "item1")
+        self.assertEqual(orders[1].item, "item2")
+        self.assertEqual(orders[2].item, "item3")
+        self.assertEqual(orders[3].item, "item4")
 
     @classmethod
     def tearDownClass(cls):
@@ -93,8 +93,8 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         self.bob = Customers.objects.get(name="Bob")
 
         ContactInfo.insert_entries([
-            {"phone": "123-456-7890", "city": "New York", "customer": self.yehor["id"]},
-            {"phone": "987-654-3210", "city": "Los Angeles", "customer": self.alice["id"]},
+            {"phone": "123-456-7890", "city": "New York", "customer": self.yehor},
+            {"phone": "987-654-3210", "city": "Los Angeles", "customer": self.alice},
         ])
 
 
@@ -104,12 +104,12 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         alice = Customers.objects.get(name="Alice")
         bob = Customers.objects.get(name="Bob")
 
-        yehor_contact = ContactInfo.objects.get(customer_id=yehor["id"])
-        alice_contact = ContactInfo.objects.get(customer_id=alice["id"])
+        yehor_contact = ContactInfo.objects.get(customer_id=yehor.id)
+        alice_contact = ContactInfo.objects.get(customer_id=alice.id)
 
         # Assert contact info matches
-        self.assertEqual(yehor_contact["phone"], "123-456-7890")
-        self.assertEqual(alice_contact["city"], "Los Angeles")
+        self.assertEqual(yehor_contact.phone, "123-456-7890")
+        self.assertEqual(alice_contact.city, "Los Angeles")
 
         # Bob has no contact info
         with self.assertRaises(Exception): 
@@ -139,28 +139,28 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
     def test_updating_contact_info(self):
         # Fetch Yehor and his contact info
         yehor = Customers.objects.get(name="Yehor")
-        yehor_contact = ContactInfo.objects.get(customer_id=yehor["id"])
+        yehor_contact = ContactInfo.objects.get(customer_id=yehor.id)
 
         # Update Yehor's contact info
-        ContactInfo.replace_entries({"id": yehor_contact["id"]}, {"phone": "999-999-9999", "city": "Boston"})
+        ContactInfo.replace_entries({"id": yehor_contact.id}, {"phone": "999-999-9999", "city": "Boston"})
 
         # Fetch updated contact info
-        updated_contact = ContactInfo.objects.get(customer_id=yehor["id"])
-        self.assertEqual(updated_contact["phone"], "999-999-9999")
-        self.assertEqual(updated_contact["city"], "Boston")
+        updated_contact = ContactInfo.objects.get(customer_id=yehor.id)
+        self.assertEqual(updated_contact.phone, "999-999-9999")
+        self.assertEqual(updated_contact.city, "Boston")
 
     def test_deleting_customer_cascades_to_contact_info(self):
         # Fetch Alice and her contact info
         alice = Customers.objects.get(name="Alice")
-        alice_contact = ContactInfo.objects.get(customer_id=alice["id"])
+        alice_contact = ContactInfo.objects.get(customer_id=alice.id)
 
         # Delete Alice
-        Customers.delete_entries({'id':alice["id"]}) 
+        Customers.delete_entries({'id':alice.id}) 
         # fix : passing a dictionnary 
 
         # Ensure Alice's contact info is also deleted
         with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
-            ContactInfo.objects.get(id=alice_contact["id"])
+            ContactInfo.objects.get(id=alice_contact.id)
 
     @classmethod
     def tearDownClass(cls):

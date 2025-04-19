@@ -40,30 +40,22 @@ class TestCreateTable(unittest.TestCase):
 
     def setUp(self):
         """Insert fresh data and reset sequence before each test."""
-        # Clear any data from previous tests first
         Student.delete_entries({}, confirm=True)
-
-        # Reset the auto-increment sequence for the student table
         connection = sqlite3.connect(DB_PATH)
         cursor = connection.cursor()
         try:
-            # This command resets the counter for the specified table
             cursor.execute("DELETE FROM sqlite_sequence WHERE name=?;", (Student.__name__.lower(),))
             connection.commit()
         except sqlite3.OperationalError as e:
-            # Handle case where sqlite_sequence table might not exist yet (e.g., first run)
-            # or if the table wasn't using AUTOINCREMENT (though it should be)
             print(f"Info: Could not reset sequence for {Student.__name__.lower()} - {e}")
-            connection.rollback() # Rollback any potential transaction state change
+            connection.rollback()
         finally:
             connection.close()
 
-        # Insert the standard test data - IDs should now start from 1
-        Student.insert_entries([
-            {"name": "Yehor Boiar", "degree": "Computer Science"},
-            {"name": "Anastasia Martison", "degree": "Computer Science"}
-        ])
-
+        # Insert using instances (IDs will be updated)
+        self.student1 = Student(name="Yehor Boiar", degree="Computer Science")
+        self.student2 = Student(name="Anastasia Martison", degree="Computer Science")
+        Student.insert_entries([self.student1, self.student2]) # Insert instances
 
     def test_table_exists(self):
         """Test if the table was created in the database."""
@@ -109,37 +101,77 @@ class TestCreateTable(unittest.TestCase):
         connection.close()
 
     def test_slicing(self):
-        self.assertEqual({'id': 1, 'name': 'Yehor Boiar', 'degree': 'Computer Science'}, Student.objects[0], "First entry of students table doesn't match the slice")
-        
-        self.assertEqual([
-            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"},
-            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
-        ], Student.objects[:2], "First entry of students table doesn't match the slice")
-    
+        # Fetch instances
+        student0 = Student.objects[0]
+        students_slice = Student.objects[:2]
+
+        # Assert instance attributes for single slice item
+        self.assertIsInstance(student0, Student)
+        self.assertEqual(student0.id, 1)
+        self.assertEqual(student0.name, 'Yehor Boiar')
+        self.assertEqual(student0.degree, 'Computer Science')
+
+        # Assert instance attributes for slice range
+        self.assertEqual(len(students_slice), 2)
+        self.assertIsInstance(students_slice[0], Student)
+        self.assertIsInstance(students_slice[1], Student)
+        self.assertEqual(students_slice[0].id, 1)
+        self.assertEqual(students_slice[1].id, 2)
+        self.assertEqual(students_slice[0].name, 'Yehor Boiar')
+        self.assertEqual(students_slice[1].name, 'Anastasia Martison')
+
     def test_iter(self):
-        iter_objects = [
-            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"},
-            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
-        ]
-        for i,j in enumerate(Student.objects.__iter__()):
-            self.assertEqual(iter_objects[i], j)
+        # Expected instances (or check attributes)
+        expected_students = [self.student1, self.student2]
+        fetched_students = list(Student.objects.__iter__()) # Collect iterator results
+
+        self.assertEqual(len(fetched_students), len(expected_students))
+        # Sort by ID for consistent comparison if order isn't guaranteed by default iteration
+        fetched_students.sort(key=lambda s: s.id)
+        expected_students.sort(key=lambda s: s.id)
+
+        for i, fetched in enumerate(fetched_students):
+            self.assertIsInstance(fetched, Student)
+            self.assertEqual(fetched.id, expected_students[i].id)
+            self.assertEqual(fetched.name, expected_students[i].name)
+            self.assertEqual(fetched.degree, expected_students[i].degree)
 
     def test_all(self):
-        expected = [
-            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"},
-            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
-        ]
-        self.assertEqual(Student.objects.all(), expected, "All() did not return expected results")
+        # Expected instances
+        expected_students = [self.student1, self.student2]
+        all_students = Student.objects.all()
+
+        self.assertEqual(len(all_students), len(expected_students))
+        # Sort by ID for consistent comparison if order isn't guaranteed
+        all_students.sort(key=lambda s: s.id)
+        expected_students.sort(key=lambda s: s.id)
+
+        for i, fetched in enumerate(all_students):
+            self.assertIsInstance(fetched, Student)
+            self.assertEqual(fetched.id, expected_students[i].id)
+            self.assertEqual(fetched.name, expected_students[i].name)
+            self.assertEqual(fetched.degree, expected_students[i].degree)
 
     def test_filter(self):
-        expected = [{'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"}]
+        # Expected instance(s)
+        expected_student = self.student1
         result = Student.objects.filter(name="Yehor Boiar").all()
-        self.assertEqual(result, expected, "Filter() did not return expected results")
+
+        self.assertEqual(len(result), 1, "Filter should return one result")
+        self.assertIsInstance(result[0], Student)
+        self.assertEqual(result[0].id, expected_student.id)
+        self.assertEqual(result[0].name, expected_student.name)
+        self.assertEqual(result[0].degree, expected_student.degree)
 
     def test_get(self):
-        expected = {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}
+        # Expected instance
+        expected_student = self.student2
         result = Student.objects.get(id=2)
-        self.assertEqual(result, expected, "Get() did not return the correct record")
+
+        self.assertIsInstance(result, Student)
+        self.assertEqual(result.id, expected_student.id)
+        self.assertEqual(result.name, expected_student.name)
+        self.assertEqual(result.degree, expected_student.degree)
 
     def test_get_no_match(self):
         with self.assertRaises(Exception) as context:
@@ -152,33 +184,58 @@ class TestCreateTable(unittest.TestCase):
         self.assertIn("MultipleObjectsReturned", str(context.exception))
 
     def test_order_by(self):
-        expected = [
-            {'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"},
-            {'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"}
-        ]
+        # Expected instances in specific order
+        expected_students_ordered = [self.student2, self.student1] # Ordered by -id
         result = Student.objects.order_by("-id").all()
-        self.assertEqual(result, expected, "Order_by() did not sort results correctly")
+
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], Student)
+        self.assertIsInstance(result[1], Student)
+        self.assertEqual(result[0].id, expected_students_ordered[0].id)
+        self.assertEqual(result[1].id, expected_students_ordered[1].id)
+        self.assertEqual(result[0].name, expected_students_ordered[0].name)
+        self.assertEqual(result[1].name, expected_students_ordered[1].name)
 
     def test_limit(self):
-        expected = [{'id': 1, "name": "Yehor Boiar", "degree": "Computer Science"}]
-        result = Student.objects.limit(1).all()
-        self.assertEqual(result, expected, "Limit() did not return correct number of records")
+        # Expected instance
+        expected_student = self.student1
+        result = Student.objects.limit(1).all() # Should get student with id 1 by default ordering
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], Student)
+        self.assertEqual(result[0].id, expected_student.id)
+        self.assertEqual(result[0].name, expected_student.name)
 
     def test_offset(self):
-        expected = [{'id': 2, "name": "Anastasia Martison", "degree": "Computer Science"}]
-        result = Student.objects.offset(1).all()
-        self.assertEqual(result, expected, "Offset() did not return expected result")
+        # Expected instance
+        expected_student = self.student2
+        result = Student.objects.offset(1).all() # Skip student 1, get student 2
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], Student)
+        self.assertEqual(result[0].id, expected_student.id)
+        self.assertEqual(result[0].name, expected_student.name)
 
     def test_chained_operations(self):
+        # Expected instance
+        expected_student = self.student1
+        # Filter, Order by -id (student2, student1), limit 1 (student2), offset 1 (student1)
         result = Student.objects.filter(degree="Computer Science").order_by("-id").limit(1).offset(1).all()
-        expected = [{'id': 1, 'name': 'Yehor Boiar', 'degree': 'Computer Science'}]
-        self.assertEqual(result, expected)
-    
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], Student)
+        self.assertEqual(result[0].id, expected_student.id)
+        self.assertEqual(result[0].name, expected_student.name)
+
     def test_complex_filter(self):
-        # Test multiple WHERE conditions
+        # Expected instance
+        expected_student = self.student1
         result = Student.objects.filter(degree="Computer Science", name__like="Y%").all()
-        expected = [{'id': 1, 'name': 'Yehor Boiar', 'degree': 'Computer Science'}]
-        self.assertEqual(result, expected)
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], Student)
+        self.assertEqual(result[0].id, expected_student.id)
+        self.assertEqual(result[0].name, expected_student.name)
         
     def test_limit_zero(self):
         result = Student.objects.limit(0).all()
@@ -205,30 +262,31 @@ class TestCreateTable(unittest.TestCase):
             Student.objects.filter(name__invalid_lookup="value").all()
     
     def test_insert_model_instances(self):
-        """Test inserting data using BaseModel instances."""
-        # setUp already ran and inserted data, but this test needs a clean slate
-        # So, the delete here is still useful.
+        """Test inserting data using BaseModel instances and ID update."""
         Student.delete_entries({}, confirm=True)
 
-        # Create model instances
         student1 = Student(name="Instance User1", degree="Physics")
         student2 = Student(name="Instance User2", degree="Chemistry")
+        self.assertIsNone(student1.id) # ID should be None before insert
+        self.assertIsNone(student2.id)
 
-        # Insert using model instances
         Student.insert_entries([student1, student2])
 
-        # Verify insertion
-        connection = sqlite3.connect(DB_PATH)
-        cursor = connection.cursor()
-        cursor.execute("SELECT name, degree FROM student ORDER BY name")
-        students = cursor.fetchall()
-        connection.close()
+        # Verify IDs were updated on instances
+        self.assertIsNotNone(student1.id)
+        self.assertIsNotNone(student2.id)
+        self.assertIsInstance(student1.id, int)
+        self.assertIsInstance(student2.id, int)
 
-        expected_entries = [
-            ('Instance User1', 'Physics'),
-            ('Instance User2', 'Chemistry')
-        ]
-        self.assertEqual(students, expected_entries, "Inserting model instances failed.")
+        # Verify insertion in DB by fetching instances
+        fetched1 = Student.objects.get(id=student1.id)
+        fetched2 = Student.objects.get(id=student2.id)
+        self.assertIsInstance(fetched1, Student)
+        self.assertIsInstance(fetched2, Student)
+        self.assertEqual(fetched1.name, "Instance User1")
+        self.assertEqual(fetched2.name, "Instance User2")
+        self.assertEqual(fetched1.degree, "Physics")
+        self.assertEqual(fetched2.degree, "Chemistry")
 
     def test_insert_mixed_types_raises_error(self):
         """Test that inserting a mix of dicts and instances raises TypeError."""
