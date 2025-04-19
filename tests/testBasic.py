@@ -2,16 +2,23 @@ import sys
 import os
 import unittest
 import sqlite3
+from unittest.mock import patch, MagicMock # Add mock
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ORM import base, datatypes
+from ORM.fields import ForeignKey # Add ForeignKey
 
 DB_PATH = "databases/main.sqlite3"
 
-class Student(base.BaseModel):
+# Add a simple related model for FK tests
+class Department(base.BaseModel):
     name = datatypes.CharField()
-    degree = datatypes.CharField()
+
+class Student(base.BaseModel):
+    name = datatypes.CharField(unique=True) # Add unique constraint for testing errors
+    degree = datatypes.CharField(null=False) # Add NOT NULL constraint for testing errors
+    department = ForeignKey(to=Department, null=True) # Add FK for testing
 
 class TestCreateTable(unittest.TestCase):
     """
@@ -35,26 +42,35 @@ class TestCreateTable(unittest.TestCase):
         """Set up the database and create the table once before all tests."""
         if not os.path.exists('databases'):
             os.makedirs('databases')
-        # Only create the table here
+        # Create tables for all models used in this test file
+        Department.create_table()
         Student.create_table()
 
     def setUp(self):
         """Insert fresh data and reset sequence before each test."""
+        # Delete from all tables used
         Student.delete_entries({}, confirm=True)
+        Department.delete_entries({}, confirm=True)
+
         connection = sqlite3.connect(DB_PATH)
         cursor = connection.cursor()
         try:
-            cursor.execute("DELETE FROM sqlite_sequence WHERE name=?;", (Student.__name__.lower(),))
+            # Reset sequences for all tables
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name IN (?, ?);",
+                           (Student.__name__.lower(), Department.__name__.lower()))
             connection.commit()
         except sqlite3.OperationalError as e:
-            print(f"Info: Could not reset sequence for {Student.__name__.lower()} - {e}")
+            print(f"Info: Could not reset sequences - {e}")
             connection.rollback()
         finally:
             connection.close()
 
-        # Insert using instances (IDs will be updated)
-        self.student1 = Student(name="Yehor Boiar", degree="Computer Science")
-        self.student2 = Student(name="Anastasia Martison", degree="Computer Science")
+        # Insert base data
+        self.dept1 = Department(name="Science")
+        Department.insert_entries([self.dept1])
+
+        self.student1 = Student(name="Yehor Boiar", degree="Computer Science", department=self.dept1)
+        self.student2 = Student(name="Anastasia Martison", degree="Computer Science", department=self.dept1)
         Student.insert_entries([self.student1, self.student2]) # Insert instances
 
     def test_table_exists(self):
@@ -82,7 +98,8 @@ class TestCreateTable(unittest.TestCase):
         expected_columns = [
             (0, 'id', 'INTEGER', 1, None, 1),  # Primary key
             (1, 'name', 'TEXT', 0, None, 0),
-            (2, 'degree', 'TEXT', 0, None, 0)
+            (2, 'degree', 'TEXT', 1, None, 0),
+            (3, 'department_id', 'INTEGER', 0, None, 0)
         ]
         self.assertEqual(columns, expected_columns, "Table schema does not match expected schema.")
 
@@ -327,6 +344,110 @@ class TestCreateTable(unittest.TestCase):
             cursor.execute("DROP TABLE IF EXISTS course")
             connection.commit()
             connection.close()
+
+    def test_init_unexpected_kwargs(self):
+        """Test initializing with unexpected keyword arguments"""
+        # Capture stdout/stderr to check for warning? Or just ensure it doesn't crash.
+        # For now, just ensure it runs and the unexpected kwarg is ignored.
+        student = Student(name="Test", degree="Test Degree", non_existent_field="ignore_me")
+        self.assertEqual(student.name, "Test")
+        self.assertFalse(hasattr(student, "non_existent_field"))
+
+    def test_init_missing_fields(self):
+        """Test initializing with missing fields defaults them to None"""
+        # Student has 'name', 'degree', 'department'
+        student = Student(name="Only Name") # Missing degree (NOT NULL) and department (NULL)
+        self.assertEqual(student.name, "Only Name")
+        # Check that attributes exist and are None initially
+        self.assertTrue(hasattr(student, 'degree'))
+        self.assertIsNone(getattr(student, 'degree', 'Attribute missing')) # Default to None
+        self.assertTrue(hasattr(student, 'department'))
+        self.assertIsNone(getattr(student, 'department', 'Attribute missing')) # Default to None
+
+    def test_as_dict_fk_none(self):
+        """Test as_dict when a ForeignKey field is None"""
+        student_no_dept = Student(name="No Dept", degree="Some Degree", department=None)
+        Student.insert_entries([student_no_dept])
+        student_dict = student_no_dept.as_dict()
+        expected = {
+            'id': student_no_dept.id,
+            'name': "No Dept",
+            'degree': "Some Degree",
+            'department_id': None # Expect department_id to be None
+        }
+        self.assertDictEqual(student_dict, expected)
+
+    def test_insert_empty_list(self):
+        """Test insert_entries with an empty list"""
+        # Should execute without error and print "No entries..."
+        # We can't easily capture print output in unittest without extra libraries/setup
+        # So we just check it doesn't raise an error.
+        try:
+            Student.insert_entries([])
+        except Exception as e:
+            self.fail(f"insert_entries([]) raised an exception: {e}")
+
+    def test_insert_invalid_type_list(self):
+        """Test insert_entries with list of invalid types (line 172)."""
+        with self.assertRaisesRegex(TypeError, "Entries must be a list of dictionaries or BaseModel instances"):
+            Student.insert_entries([1, 2, 3])
+
+    def test_insert_constraint_violation_unique(self):
+        """Test insert_entries violating UNIQUE constraint (line 220)."""
+        # self.student1 (Yehor Boiar) already exists from setUp
+        student_duplicate = Student(name="Yehor Boiar", degree="Another Degree")
+        # This should raise an IntegrityError during _execute_insert
+        with self.assertRaises(sqlite3.IntegrityError):
+            Student.insert_entries([student_duplicate])
+
+    def test_insert_constraint_violation_not_null(self):
+        """Test insert_entries violating NOT NULL constraint (line 220)."""
+        student_null_degree = Student(name="Null Degree Test", degree=None) # degree is NOT NULL
+        # This should raise an IntegrityError during _execute_insert
+        with self.assertRaises(sqlite3.IntegrityError):
+            Student.insert_entries([student_null_degree])
+
+    @patch('sqlite3.connect')
+    def test_insert_connection_error(self, mock_connect):
+        """Test insert_entries with a connection error (lines 246-248)."""
+        # Configure the mock connection to raise an error
+        mock_connect.side_effect = sqlite3.OperationalError("Cannot connect")
+
+        student_new = Student(name="Connect Fail", degree="Test")
+        with self.assertRaises(sqlite3.OperationalError):
+            Student.insert_entries([student_new])
+        # Verify rollback wasn't attempted (since connection failed) - tricky without more mocks
+
+    def test_replace_no_conditions(self):
+        """Test replace_entries with no conditions (lines 288-289)."""
+        # Should run without error and print "Error: You must provide..."
+        try:
+            Student.replace_entries({}, {"degree": "Updated Degree"})
+        except Exception as e:
+            self.fail(f"replace_entries with no conditions raised an exception: {e}")
+
+    def test_replace_no_values(self):
+        """Test replace_entries with no new values (line 292)."""
+        # Should run without error and print "Error: No new values..."
+        try:
+            Student.replace_entries({"id": self.student1.id}, {})
+        except Exception as e:
+            self.fail(f"replace_entries with no values raised an exception: {e}")
+
+    def test_replace_basic(self):
+        """Test basic functionality of replace_entries (covers finally block lines 363-364)."""
+        student_id = self.student1.id
+        Student.replace_entries({"id": student_id}, {"degree": "Updated CS"})
+        updated_student = Student.objects.get(id=student_id)
+        self.assertEqual(updated_student.degree, "Updated CS")
+
+    def test_replace_constraint_violation(self):
+        """Test replace_entries violating a constraint (lines 354, 359-361, 404-405)."""
+        # Try updating student1's name to student2's name (violates UNIQUE)
+        student1_id = self.student1.id
+        student2_name = self.student2.name
+        with self.assertRaises(sqlite3.IntegrityError):
+            Student.replace_entries({"id": student1_id}, {"name": student2_name})
 
     @classmethod
     def tearDownClass(cls):

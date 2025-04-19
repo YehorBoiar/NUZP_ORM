@@ -1,6 +1,8 @@
 import sys
 import os
 import unittest
+import sqlite3
+from unittest.mock import patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -9,7 +11,7 @@ from ORM import base, datatypes
 DB_PATH = "databases/main.sqlite3"
 
 class Customers(base.BaseModel):
-    name = datatypes.CharField()
+    name = datatypes.CharField(unique=True)
     age = datatypes.IntegerField()
     
 class ContactInfo(base.BaseModel):
@@ -108,27 +110,37 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         Customers.delete_entries({}, confirm=True)
         ContactInfo.delete_entries({}, confirm=True)
 
-        # Insert test data
-        Customers.insert_entries([
-            {"name": "Yehor", "age": 18},
-            {"name": "Alice", "age": 25},
-            {"name": "Bob", "age": 30},
-        ])
-        self.yehor = Customers.objects.get(name="Yehor")
-        self.alice = Customers.objects.get(name="Alice")
-        self.bob = Customers.objects.get(name="Bob")
+        # Reset sequences
+        connection = sqlite3.connect(DB_PATH)
+        cursor = connection.cursor()
+        try:
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name IN (?, ?);",
+                           (Customers.__name__.lower(), ContactInfo.__name__.lower()))
+            connection.commit()
+        except sqlite3.OperationalError as e:
+            print(f"Info: Could not reset sequences - {e}")
+            connection.rollback()
+        finally:
+            connection.close()
 
-        ContactInfo.insert_entries([
-            {"phone": "123-456-7890", "city": "New York", "customer": self.yehor},
-            {"phone": "987-654-3210", "city": "Los Angeles", "customer": self.alice},
-        ])
+
+        # Insert test data
+        self.cust1 = Customers(name="Yehor", age=18)
+        self.cust2 = Customers(name="Alice", age=25)
+        self.cust3 = Customers(name="Bob", age=30)
+        Customers.insert_entries([self.cust1, self.cust2, self.cust3])
+
+        # Use instances for FK assignment
+        self.contact1 = ContactInfo(phone="123-456-7890", city="New York", customer=self.cust1)
+        self.contact2 = ContactInfo(phone="987-654-3210", city="Los Angeles", customer=self.cust2)
+        ContactInfo.insert_entries([self.contact1, self.contact2])
 
 
     def test_multiple_customers_with_contact_info(self):
         # Fetch all customers and their contact info
-        yehor = Customers.objects.get(name="Yehor")
-        alice = Customers.objects.get(name="Alice")
-        bob = Customers.objects.get(name="Bob")
+        yehor = self.cust1
+        alice = self.cust2
+        bob = self.cust3
 
         yehor_contact = ContactInfo.objects.get(customer_id=yehor.id)
         alice_contact = ContactInfo.objects.get(customer_id=alice.id)
@@ -143,7 +155,7 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
 
     def test_customer_without_contact_info(self):
         # Fetch Bob, who has no contact info
-        bob = Customers.objects.get(name="Bob")
+        bob = self.cust3
 
         # Attempt to fetch contact info for Bob
         with self.assertRaises(Exception):
@@ -156,7 +168,7 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
 
     def test_duplicate_contact_info_for_customer(self):
         # Fetch Yehor
-        yehor = Customers.objects.get(name="Yehor")
+        yehor = self.cust1
  
         # Attempt to insert another contact info for Yehor
         with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
@@ -164,7 +176,7 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
 
     def test_updating_contact_info(self):
         # Fetch Yehor and his contact info
-        yehor = Customers.objects.get(name="Yehor")
+        yehor = self.cust1
         yehor_contact = ContactInfo.objects.get(customer_id=yehor.id)
 
         # Update Yehor's contact info
@@ -177,7 +189,7 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
 
     def test_deleting_customer_cascades_to_contact_info(self):
         # Fetch Alice and her contact info
-        alice = Customers.objects.get(name="Alice")
+        alice = self.cust2
         alice_contact = ContactInfo.objects.get(customer_id=alice.id)
 
         # Delete Alice
@@ -191,9 +203,9 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
     def test_as_dict_one_to_one(self):
         """Test as_dict() for models involved in a OneToOne relationship."""
         # Use instances from setUp
-        yehor = self.yehor
-        alice = self.alice
-        bob = self.bob # Bob has no contact info
+        yehor = self.cust1
+        alice = self.cust2
+        bob = self.cust3 # Bob has no contact info
 
         # Fetch contact info for Yehor
         yehor_contact = ContactInfo.objects.get(customer_id=yehor.id)
@@ -253,6 +265,16 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         }
         self.assertDictEqual(contact_dict_rel, expected_contact_dict_rel)
 
+    def test_insert_onetoone_violation_in_batch(self):
+        """Test O2O violation check within _process_entries_for_values (line 210)."""
+        # Try inserting two ContactInfo entries for self.cust3 in the same batch
+        contact_batch = [
+            ContactInfo(phone="111", city="CityA", customer=self.cust3),
+            ContactInfo(phone="222", city="CityB", customer=self.cust3) # Duplicate customer FK
+        ]
+        with self.assertRaisesRegex(ValueError, "Duplicate entry detected within the batch for OneToOne field 'customer' with value 3 at index 1"):
+            ContactInfo.insert_entries(contact_batch)
+
     @classmethod
     def tearDownClass(cls):
         """Clean up the database after tests."""
@@ -260,6 +282,61 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
             os.remove(DB_PATH)
         if os.path.exists('databases'):
             os.rmdir('databases')
+
+# Add test for M2M as_dict error
+class TestM2MAsDictError(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.exists('databases'):
+            os.makedirs('databases')
+        Author.create_table()
+        Book.create_table()
+
+    def setUp(self):
+        Author.delete_entries({}, confirm=True)
+        Book.delete_entries({}, confirm=True)
+        # Clear junction table
+        connection_obj = sqlite3.connect(DB_PATH)
+        cursor_obj = connection_obj.cursor()
+        try: cursor_obj.execute("DELETE FROM book_author")
+        except sqlite3.OperationalError: pass
+        try: cursor_obj.execute("DELETE FROM sqlite_sequence WHERE name IN ('author', 'book')")
+        except sqlite3.OperationalError: pass
+        connection_obj.commit()
+        connection_obj.close()
+
+    @patch('ORM.fields.ManyToManyRelatedManager.all')
+    def test_as_dict_m2m_error(self, mock_m2m_all):
+        """Test as_dict M2M error handling (lines 108-111)."""
+        # Setup data
+        author = Author(name="Test Author")
+        Author.insert_entries([author])
+        book = Book(title="Test Book")
+        Book.insert_entries([book])
+        book.authors.add(author) # Add relationship
+
+        # Configure mock to raise error when .all() is called within as_dict
+        mock_m2m_all.side_effect = Exception("Simulated M2M fetch error")
+
+        # Call as_dict and check output
+        book_dict = book.as_dict()
+
+        # Expect 'authors' to be an empty list due to error handling
+        expected_dict = {
+            'id': book.id,
+            'title': "Test Book",
+            'authors': [] # Should default to empty list on error
+        }
+        self.assertDictEqual(book_dict, expected_dict)
+        # Optionally check if the warning was printed (requires more setup)
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        if os.path.exists('databases'):
+            try: os.rmdir('databases')
+            except OSError: pass
 
 if __name__ == '__main__':
     unittest.main()

@@ -30,31 +30,34 @@ class Field:
 
 
 class CharField(Field):
-    def __init__(self, null=True):
+    def __init__(self, null=True, unique=False):
         """
         Initialize a character field.
 
         :param null: If True, the field is nullable. If False, the field is NOT NULL.
+        :param unique: If True, add a UNIQUE constraint.
         """
-        super().__init__("TEXT", null)
+        super().__init__("TEXT", null=null, unique=unique)
 
 
 class IntegerField(Field):
-    def __init__(self, null=True, default=0):
+    def __init__(self, null=True, default=0, unique=False):
         """
         Initialize an integer field.
 
         :param null: If True, the field is nullable. If False, the field is NOT NULL.
         :param default: The default value for the field.
+        :param unique: If True, add a UNIQUE constraint.
         """
-        super().__init__("INTEGER", null)
+        super().__init__("INTEGER", null=null, unique=unique)
         self.default = default
 
 class DateTimeField(Field):
-    def __init__(self, null=True):
+    def __init__(self, null=True, unique=False):
         """
         Initialize a datetime field.
 
         :param null: If True, the field is nullable. If False, the field is NOT NULL.
+        :param unique: If True, add a UNIQUE constraint.
         """
-        super().__init__("DATETIME", null)
+        super().__init__("DATETIME", null=null, unique=unique)

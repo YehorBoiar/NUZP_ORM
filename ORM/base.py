@@ -39,30 +39,19 @@ class BaseModel(metaclass=ModelMeta):
 
     def __init__(self, **kwargs):
         """
-        Initializes a model instance. Expects keyword arguments matching
-        the model's defined *non-relational* fields (plus 'id').
-        Relational fields (FK, O2O, M2M) are handled separately or via descriptors.
+        Initializes a model instance.
+        Sets attributes based on provided keyword arguments.
+        Defaults fields not provided in kwargs to None.
+        Ensures 'id' is initialized, defaulting to None.
         """
-        # Assign provided keyword arguments to attributes
-        for key, value in kwargs.items():
-            if key == 'id':
-                self.id = value
-            # Only set attributes for keys that are in _fields (non-relational or FK/O2O)
-            # This prevents overwriting M2M descriptors.
-            elif key in self._fields:
-                 setattr(self, key, value)
-            else:
-                print(f"Warning: Ignoring unexpected keyword argument '{key}' for {self.__class__.__name__}")
-
-        # Ensure essential attributes like 'id' exist even if not in kwargs
-        if 'id' not in kwargs:
-            self.id = None
-        # Ensure field attributes exist, defaulting to None if not in kwargs
-        # This ensures attributes exist even if not provided in kwargs
+        # Initialize all defined fields (_fields comes from metaclass)
         for field_name in self._fields:
-            if not hasattr(self, field_name):
-                setattr(self, field_name, None)
+            # Get the value from kwargs if provided, otherwise default to None
+            value = kwargs.get(field_name, None)
+            setattr(self, field_name, value)
 
+        # Handle 'id' specifically - it might be in kwargs or should be None initially
+        self.id = kwargs.get('id', None)
 
     def __repr__(self):
         """Return a string representation of the model instance."""
@@ -134,7 +123,7 @@ class BaseModel(metaclass=ModelMeta):
                 fields_sql.append(
                     f"{column_name} {field.db_type} REFERENCES {ref_table}(id) ON DELETE CASCADE")
             else:
-                fields_sql.append(f"{field_name} {field.db_type}")
+                fields_sql.append(f"{field_name} {field.get_db_type()}")
         cursor_obj.execute(f"DROP TABLE IF EXISTS {table_name}")
         cursor_obj.execute(
             f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(fields_sql)});")
@@ -235,17 +224,33 @@ class BaseModel(metaclass=ModelMeta):
     def _process_entries_for_values(cls, entries, is_dict_input, field_names_model, field_names_db, cursor_obj):
         """Process all entries to generate the list of value tuples for executemany."""
         values = []
-        for entry in entries:
+        # Keep track of O2O FK values seen within this batch for each O2O field
+        seen_onetoone_values = {
+            fn: set() for fn, f in cls._fields.items() if isinstance(f, OneToOneField)
+        }
+
+        for entry_index, entry in enumerate(entries): # Use enumerate for better error context
             row = []
             for model_field_name, db_field_name in zip(field_names_model, field_names_db):
                 field = cls._fields[model_field_name]
                 value = cls._extract_value_for_db(entry, model_field_name, field, is_dict_input)
+
                 if isinstance(field, OneToOneField) and value is not None:
+                    # 1. Check for duplicates within the current batch first
+                    if value in seen_onetoone_values[model_field_name]:
+                        # Raise ValueError immediately if duplicate found in batch
+                        raise ValueError(
+                            f"Duplicate entry detected within the batch for OneToOne field '{model_field_name}' with value {value} at index {entry_index}"
+                        )
+                    # Add the value to the set for this batch check
+                    seen_onetoone_values[model_field_name].add(value)
+
+                    # 2. Check against the database (existing check)
                     try:
                         cls._check_onetoone_constraint(cursor_obj, db_field_name, model_field_name, value)
                     except ValueError as e:
-                        # Re-raise with more context or handle as needed
-                        raise ValueError(f"Error processing entry {entry}: {e}") from e
+                        # Add index context if database check fails
+                        raise ValueError(f"Error processing entry at index {entry_index}: {e}") from e
 
                 row.append(value)
             values.append(tuple(row))
@@ -374,5 +379,6 @@ class BaseModel(metaclass=ModelMeta):
                 f"Updated entries in {cls.__name__} where {conditions} with {new_values}")
         except Exception as e:
             print(f"Error updating entries: {e}")
+            raise e
         finally:
             connection_obj.close()
