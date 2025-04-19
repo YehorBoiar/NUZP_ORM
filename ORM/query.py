@@ -140,6 +140,11 @@ class QuerySet:
         instances = []
         for row_dict in results_as_dicts:
             instance = self.model(**row_dict)
+            for column_name, value in row_dict.items():
+                # Directly set the attribute on the instance.
+                # This handles 'id', regular fields, and 'fieldname_id' columns.
+                setattr(instance, column_name, value)
+                
             instances.append(instance)
 
         return instances

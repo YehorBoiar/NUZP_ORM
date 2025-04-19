@@ -80,11 +80,12 @@ class BaseModel(metaclass=ModelMeta):
                 # Check for the _id attribute first (set during loading)
                 fk_id_attr = field_name + '_id'
                 fk_id = getattr(self, fk_id_attr, None)
-                if fk_id is None:
-                    # Fallback: check if related object is loaded
-                    related_obj = getattr(self, field_name, None)
-                    if related_obj and related_obj.id is not None:
-                        fk_id = related_obj.id
+                
+                if fk_id is None and hasattr(self, field_name): # Check fk_id is still None
+                    potential_related_obj = getattr(self, field_name)
+                    if isinstance(potential_related_obj, field.to) and potential_related_obj.id is not None:
+                         fk_id = potential_related_obj.id
+
                 data[fk_id_attr] = fk_id
             else:
                 # Regular field
