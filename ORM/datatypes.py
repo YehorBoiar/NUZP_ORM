@@ -1,6 +1,6 @@
 class Field:
     """Represents a database field."""
-    def __init__(self, db_type, null=True, unique=False):
+    def __init__(self, db_type, null=True, unique=False, default=None, max_length=None):
         """
         Initialize a field.
 
@@ -10,6 +10,8 @@ class Field:
         self.db_type = db_type
         self.null = null
         self.unique = unique
+        self.default = default
+        self.max_length = max_length
 
     def get_db_type(self):
         parts = [self.db_type]
@@ -30,7 +32,7 @@ class Field:
 
 
 class CharField(Field):
-    def __init__(self, null=True, unique=False):
+    def __init__(self, null=True, unique=False, default=None, max_length=None):
         """
         Initialize a character field.
 
@@ -38,6 +40,8 @@ class CharField(Field):
         :param unique: If True, add a UNIQUE constraint.
         """
         super().__init__("TEXT", null=null, unique=unique)
+        self.default = default
+        self.max_length = max_length
 
 
 class IntegerField(Field):
@@ -53,7 +57,7 @@ class IntegerField(Field):
         self.default = default
 
 class DateTimeField(Field):
-    def __init__(self, null=True, unique=False):
+    def __init__(self, null=True, unique=False, default=None):
         """
         Initialize a datetime field.
 
@@ -61,3 +65,4 @@ class DateTimeField(Field):
         :param unique: If True, add a UNIQUE constraint.
         """
         super().__init__("DATETIME", null=null, unique=unique)
+        self.default = default

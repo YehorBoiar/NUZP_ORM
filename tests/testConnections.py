@@ -1,3 +1,4 @@
+from ORM.fields import ManyToManyRelatedManager
 import sys
 import os
 import unittest
@@ -6,7 +7,7 @@ from unittest.mock import patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ORM import base, datatypes
+from ORM import base, datatypes, fields
 
 DB_PATH = "databases/main.sqlite3"
 
@@ -329,6 +330,236 @@ class TestM2MAsDictError(unittest.TestCase):
         }
         self.assertDictEqual(book_dict, expected_dict)
         # Optionally check if the warning was printed (requires more setup)
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        if os.path.exists('databases'):
+            try: os.rmdir('databases')
+            except OSError: pass
+
+class TestFieldFeatures(unittest.TestCase):
+    """Tests for basic Field class features like default values."""
+    @classmethod
+    def setUpClass(cls):
+        # Define a simple model for testing field defaults
+        class DefaultModel(base.BaseModel):
+            name = datatypes.CharField(default="DefaultName")
+            value = datatypes.IntegerField(default=100)
+            nullable_int = datatypes.IntegerField(null=True, default=None) # Test None default
+
+        cls.DefaultModel = DefaultModel
+        # No table creation needed as we only test instance initialization
+
+    def test_field_default_init(self):
+        """Test Field __init__ default handling (line 37 in base.py)."""
+        # BaseModel.__init__ does NOT apply defaults from Field definition
+        # It defaults to None if kwarg is missing.
+        instance = self.DefaultModel()
+        self.assertIsNone(instance.name, "CharField default should not be applied by __init__")
+        self.assertIsNone(instance.value, "IntegerField default should not be applied by __init__")
+        self.assertIsNone(instance.nullable_int, "IntegerField(default=None) should be None")
+
+
+        # Test providing values overrides the None default from __init__
+        instance_override = self.DefaultModel(name="SpecificName", value=50, nullable_int=5)
+        self.assertEqual(instance_override.name, "SpecificName")
+        self.assertEqual(instance_override.value, 50)
+        self.assertEqual(instance_override.nullable_int, 5)
+
+    def test_charfield_init(self):
+        """Test CharField __init__ (line 68 in datatypes.py)."""
+        # Primarily testing instantiation works and attributes are stored
+        field = datatypes.CharField(max_length=10, unique=True, default="test", null=False)
+        self.assertEqual(field.max_length, 10)
+        self.assertTrue(field.unique)
+        self.assertEqual(field.default, "test")
+        self.assertFalse(field.null)
+        self.assertEqual(field.db_type, "TEXT")
+        # Note: max_length validation isn't typically done on assignment in simple ORMs
+        # It's usually a database constraint.
+
+    def test_integerfield_init(self):
+        """Test IntegerField __init__ (line 87 in datatypes.py)."""
+        instance = datatypes.IntegerField(default=0, null=False, unique=True)
+        self.assertEqual(instance.default, 0)
+        self.assertFalse(instance.null)
+        self.assertTrue(instance.unique)
+        self.assertEqual(instance.db_type, "INTEGER")
+        # No specific validation on assignment is implemented in the Field base class
+
+class TestForeignKeyFeatures(unittest.TestCase):
+    """Tests specific ForeignKey features."""
+    @classmethod
+    def setUpClass(cls):
+        class Country(base.BaseModel):
+            name = datatypes.CharField(unique=True)
+            # Removed 'cities' CharField - reverse relations aren't automatic
+
+        class City(base.BaseModel):
+            name = datatypes.CharField()
+            # ForeignKey definition
+            country = fields.ForeignKey(to=Country, null=False) # Make it non-nullable for testing
+
+        cls.Country = Country
+        cls.City = City
+        if not os.path.exists('databases'):
+            os.makedirs('databases')
+        cls.Country.create_table()
+        cls.City.create_table()
+
+    def setUp(self):
+        # Clear tables before each test
+        self.City.delete_entries({}, confirm=True) # Delete dependent table first
+        self.Country.delete_entries({}, confirm=True)
+
+        connection = sqlite3.connect(DB_PATH)
+        cursor = connection.cursor()
+        try:
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name IN (?, ?);",
+                           (self.Country.__name__.lower(), self.City.__name__.lower()))
+            connection.commit()
+        except sqlite3.OperationalError: pass # Ignore if sequence table doesn't exist
+        finally: connection.close()
+
+        # Insert a country instance
+        self.country1 = self.Country(name="Testland")
+        self.Country.insert_entries([self.country1]) # ID gets updated
+
+    def test_foreignkey_reverse_access_not_implemented(self):
+        """Test that reverse ForeignKey access is not automatically created."""
+        city1 = self.City(name="Capital", country=self.country1)
+        self.City.insert_entries([city1])
+
+        # Accessing 'city_set' (or similar) should fail as it's not defined
+        self.assertFalse(hasattr(self.country1, 'city_set'))
+        self.assertFalse(hasattr(self.country1, 'cities')) # Check original name too
+        with self.assertRaises(AttributeError):
+            _ = self.country1.city_set # Or whatever default name might be expected
+
+        # To get related cities, query the City model directly
+        related_cities_qs = self.City.objects.filter(country_id=self.country1.id)
+        related_cities = list(related_cities_qs)
+        self.assertEqual(len(related_cities), 1)
+        self.assertEqual(related_cities[0].name, "Capital")
+
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        if os.path.exists('databases'):
+            try: os.rmdir('databases')
+            except OSError: pass
+
+
+class TestManyToManyFieldFeatures(unittest.TestCase):
+    """Tests specific ManyToManyField features."""
+    @classmethod
+    def setUpClass(cls):
+        class Tag(base.BaseModel):
+            name = datatypes.CharField(unique=True)
+            # No automatic reverse relation 'posts'
+
+        class Post(base.BaseModel):
+            title = datatypes.CharField()
+            tags = fields.ManyToManyField(to=Tag) # Use fields.ManyToManyField
+
+        cls.Tag = Tag
+        cls.Post = Post
+        if not os.path.exists('databases'):
+            os.makedirs('databases')
+        cls.Tag.create_table()
+        cls.Post.create_table() # This should also create the junction table
+
+    def setUp(self):
+        # Determine junction table name dynamically
+        m2m_field = self.Post._many_to_many['tags']
+        self.junction_table = m2m_field.through or f"{self.Post.__name__.lower()}_{self.Tag.__name__.lower()}"
+
+        # Clear tables and junction table
+        connection_obj = sqlite3.connect(DB_PATH)
+        cursor_obj = connection_obj.cursor()
+        try: cursor_obj.execute(f"DELETE FROM {self.junction_table}")
+        except sqlite3.OperationalError: pass # Ignore if table doesn't exist yet
+        connection_obj.commit() # Commit deletion before deleting main tables
+
+        self.Post.delete_entries({}, confirm=True) # Delete Post first if Tag has FKs to it (it doesn't here)
+        self.Tag.delete_entries({}, confirm=True)
+
+        try:
+            cursor_obj.execute("DELETE FROM sqlite_sequence WHERE name IN (?, ?, ?);",
+                           (self.Tag.__name__.lower(), self.Post.__name__.lower(), self.junction_table)) # Include junction table if it has own sequence
+            connection_obj.commit()
+        except sqlite3.OperationalError: pass # Ignore if sequence table doesn't exist
+        finally: connection_obj.close()
+
+        # Insert base data
+        self.tag1 = self.Tag(name="Tech")
+        self.tag2 = self.Tag(name="News")
+        self.Tag.insert_entries([self.tag1, self.tag2])
+        self.post1 = self.Post(title="Post 1")
+        self.Post.insert_entries([self.post1])
+
+    def test_manytomanyfield_init_no_related_name(self):
+        """Test ManyToManyField __init__ doesn't store related_name."""
+        # The implementation in fields.py doesn't accept/store related_name
+        m2m_field = fields.ManyToManyField(self.Tag) # No related_name arg
+        self.assertFalse(hasattr(m2m_field, 'related_name'))
+
+    def test_manytomany_get_manager(self):
+        """Test ManyToManyField __get__ returns manager."""
+        manager = self.post1.tags
+        self.assertIsInstance(manager, ManyToManyRelatedManager)
+        # Check manager attributes based on fields.py implementation
+        self.assertIs(manager.instance, self.post1)
+        self.assertIsInstance(manager.field, fields.ManyToManyField)
+        self.assertIs(manager.source_class, self.Post)
+        self.assertIs(manager.target_class, self.Tag)
+        self.assertEqual(manager.junction_table, self.junction_table)
+
+    def test_manytomany_direct_assignment_possible(self):
+        """Test that direct assignment to M2M field replaces the manager (not recommended)."""
+        # The descriptor doesn't define __set__, so assignment replaces the manager
+        original_manager = self.post1.tags
+        self.post1.tags = [self.tag1] # Assign a list
+        self.assertNotIsInstance(self.post1.tags, ManyToManyRelatedManager)
+        self.assertEqual(self.post1.tags, [self.tag1])
+        # Restore manager for subsequent tests if needed (though setUp handles it)
+        setattr(self.post1, '_tags_manager', original_manager)
+
+
+    def test_manytomany_reverse_access_not_implemented(self):
+        """Test accessing reverse M2M relationship is not automatic."""
+        self.post1.tags.add(self.tag1)
+        post2 = self.Post(title="Post 2")
+        self.Post.insert_entries([post2])
+        post2.tags.add(self.tag1)
+
+        # Accessing tag1.posts should fail
+        self.assertFalse(hasattr(self.tag1, 'posts'))
+        with self.assertRaises(AttributeError):
+            _ = self.tag1.posts
+
+        # To get related posts, query the Post model and filter via the junction table
+        # This requires a more complex query or a helper method not shown in the base ORM
+        # Simplest is to iterate through posts and check their tags
+        related_posts = []
+        for post in self.Post.objects.all():
+             if self.tag1.id in [tag.id for tag in post.tags.all()]:
+                 related_posts.append(post)
+
+        self.assertEqual(len(related_posts), 2)
+        post_titles = {p.title for p in related_posts}
+        self.assertEqual(post_titles, {"Post 1", "Post 2"})
+
+
+    def test_m2m_manager_add_invalid_type(self):
+        """Test ManyToManyRelatedManager add() type validation (line 193 in fields.py)."""
+        # The add method checks isinstance(target_obj, self.target_class)
+        with self.assertRaisesRegex(TypeError, f"Can only add '{self.Tag.__name__}' instances."):
+            self.post1.tags.add("not a tag instance")
 
     @classmethod
     def tearDownClass(cls):
