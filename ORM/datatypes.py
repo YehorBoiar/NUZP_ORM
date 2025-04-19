@@ -12,14 +12,21 @@ class Field:
         self.unique = unique
 
     def get_db_type(self):
-        """Return the full database type, including NOT NULL if applicable."""
+        parts = [self.db_type]
         if not self.null:
-            return f"{self.db_type} NOT NULL"
-        if self.unique and self.null:
-            return f"{self.db_type} UNIQUE"
-        if self.unique and not self.null:
-            return f"{self.db_type} NOT NULL UNIQUE"
-        return self.db_type
+            parts.append("NOT NULL")
+        # Ensure UNIQUE is checked independently of NULL
+        if self.unique: # Changed from potential 'elif' or faulty logic
+            parts.append("UNIQUE")
+        # Handle default value if applicable (might be in subclass)
+        if hasattr(self, 'default') and self.default is not None:
+             # Ensure proper formatting for SQL DEFAULT clause, e.g., strings need quotes
+             default_val = self.default
+             if isinstance(default_val, str):
+                 default_val = f"'{default_val}'" # Add quotes for string defaults
+             parts.append(f"DEFAULT {default_val}")
+
+        return " ".join(parts)
 
 
 class CharField(Field):
@@ -42,14 +49,6 @@ class IntegerField(Field):
         """
         super().__init__("INTEGER", null)
         self.default = default
-
-    def get_db_type(self):
-        """Return the full database type, including NOT NULL and DEFAULT if applicable."""
-        db_type = super().get_db_type()
-        if hasattr(self, 'default'):
-            db_type += f" DEFAULT {self.default}"
-        return db_type
-
 
 class DateTimeField(Field):
     def __init__(self, null=True):
