@@ -236,6 +236,58 @@ class TestManyToManyRelationships(unittest.TestCase):
         authors = list(authors_qs)
         self.assertEqual(len(authors), 0)
 
+    def test_as_dict_with_m2m(self):
+        """Test the as_dict() method includes M2M relationships."""
+        # Use instances from setUp
+        rowling = self.rowling
+        orwell = self.orwell
+        harry_potter = self.harry_potter
+        nineteen_eighty_four = self.nineteen_eighty_four
+
+        # Add authors to Harry Potter
+        harry_potter.authors.add(rowling)
+
+        # Get dict representation of Harry Potter
+        hp_dict = harry_potter.as_dict()
+
+        # Expected dict for Harry Potter
+        expected_hp_dict = {
+            'id': harry_potter.id,
+            'title': "Harry Potter",
+            'authors': [rowling.id] # Should contain list of related IDs
+        }
+        self.assertDictEqual(hp_dict, expected_hp_dict)
+
+        # Add another author to Harry Potter
+        harry_potter.authors.add(orwell)
+        hp_dict_updated = harry_potter.as_dict()
+        # Order of IDs might not be guaranteed, so compare sets
+        self.assertEqual(hp_dict_updated['id'], harry_potter.id)
+        self.assertEqual(hp_dict_updated['title'], "Harry Potter")
+        self.assertIsInstance(hp_dict_updated['authors'], list)
+        self.assertSetEqual(set(hp_dict_updated['authors']), {rowling.id, orwell.id})
+
+        # Get dict representation of 1984 (no authors added yet)
+        nef_dict = nineteen_eighty_four.as_dict()
+        expected_nef_dict = {
+            'id': nineteen_eighty_four.id,
+            'title': "1984",
+            'authors': [] # Should be an empty list
+        }
+        self.assertDictEqual(nef_dict, expected_nef_dict)
+
+    def test_as_dict_unsaved_instance(self):
+        """Test as_dict() on an unsaved instance with M2M fields."""
+        unsaved_book = Book(title="Unsaved Book")
+        book_dict = unsaved_book.as_dict()
+
+        expected_dict = {
+            'id': None,
+            'title': "Unsaved Book",
+            'authors': [] # M2M should be empty list for unsaved instances
+        }
+        self.assertDictEqual(book_dict, expected_dict)
+
     @classmethod
     def tearDownClass(cls):
         """Clean up the database file after all tests."""

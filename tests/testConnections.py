@@ -35,7 +35,7 @@ class TestOneToManyRelationship(unittest.TestCase):
         # Create tables
         Customers.create_table()
         Orders.create_table()
-
+        
         # Insert a customer
         Customers.insert_entries([{"name": "Yehor", "age": 18}])
 
@@ -61,6 +61,32 @@ class TestOneToManyRelationship(unittest.TestCase):
         self.assertEqual(orders[1].item, "item2")
         self.assertEqual(orders[2].item, "item3")
         self.assertEqual(orders[3].item, "item4")
+
+    def test_as_dict_foreign_key(self):
+        """Test as_dict() for a model with a ForeignKey."""
+        # Fetch the customer and one of their orders
+        customer = Customers.objects.get(name="Yehor")
+        order = Orders.objects.filter(customer_id=customer.id).all()[0]
+
+        # Get dict representation of the order
+        order_dict = order.as_dict()
+
+        # Expected dict for the order
+        expected_order_dict = {
+            'id': order.id,
+            'item': order.item, # e.g., "item1"
+            'customer_id': customer.id # Should contain the related customer's ID
+        }
+        self.assertDictEqual(order_dict, expected_order_dict)
+
+        # Test as_dict on the customer (which has no outgoing FK/O2O in this test)
+        customer_dict = customer.as_dict()
+        expected_customer_dict = {
+            'id': customer.id,
+            'name': "Yehor",
+            'age': 18
+        }
+        self.assertDictEqual(customer_dict, expected_customer_dict)
 
     @classmethod
     def tearDownClass(cls):
@@ -161,6 +187,71 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         # Ensure Alice's contact info is also deleted
         with self.assertRaises(Exception):  # Replace with the specific exception your ORM raises
             ContactInfo.objects.get(id=alice_contact.id)
+
+    def test_as_dict_one_to_one(self):
+        """Test as_dict() for models involved in a OneToOne relationship."""
+        # Use instances from setUp
+        yehor = self.yehor
+        alice = self.alice
+        bob = self.bob # Bob has no contact info
+
+        # Fetch contact info for Yehor
+        yehor_contact = ContactInfo.objects.get(customer_id=yehor.id)
+
+        # Get dict representation of Yehor's contact info
+        contact_dict = yehor_contact.as_dict()
+        expected_contact_dict = {
+            'id': yehor_contact.id,
+            'phone': "123-456-7890",
+            'city': "New York",
+            'customer_id': yehor.id # Should contain the related customer's ID
+        }
+        self.assertDictEqual(contact_dict, expected_contact_dict)
+
+        # Get dict representation of Yehor (Customer)
+        # Customer model itself doesn't define the O2O field pointing *to* ContactInfo
+        # So its dict should only contain its own fields.
+        yehor_dict = yehor.as_dict()
+        expected_yehor_dict = {
+            'id': yehor.id,
+            'name': "Yehor",
+            'age': 18
+        }
+        self.assertDictEqual(yehor_dict, expected_yehor_dict)
+
+        # Get dict representation of Bob (no related ContactInfo)
+        bob_dict = bob.as_dict()
+        expected_bob_dict = {
+            'id': bob.id,
+            'name': "Bob",
+            'age': 30
+        }
+        self.assertDictEqual(bob_dict, expected_bob_dict)
+
+    def test_as_dict_unsaved_one_to_one(self):
+        """Test as_dict() on unsaved instances with FK/O2O fields."""
+        # Unsaved ContactInfo (customer_id should be None)
+        unsaved_contact = ContactInfo(phone="111-000", city="Nowhere")
+        contact_dict = unsaved_contact.as_dict()
+        expected_contact_dict = {
+            'id': None,
+            'phone': "111-000",
+            'city': "Nowhere",
+            'customer_id': None # FK/O2O ID should be None if instance/relation not set
+        }
+        self.assertDictEqual(contact_dict, expected_contact_dict)
+
+        # Unsaved ContactInfo with unsaved Customer assigned
+        unsaved_customer = Customers(name="Temp", age=1)
+        unsaved_contact_with_rel = ContactInfo(phone="222-000", city="Somewhere", customer=unsaved_customer)
+        contact_dict_rel = unsaved_contact_with_rel.as_dict()
+        expected_contact_dict_rel = {
+            'id': None,
+            'phone': "222-000",
+            'city': "Somewhere",
+            'customer_id': None # Related customer has no ID yet
+        }
+        self.assertDictEqual(contact_dict_rel, expected_contact_dict_rel)
 
     @classmethod
     def tearDownClass(cls):
