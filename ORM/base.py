@@ -376,30 +376,3 @@ class BaseModel(metaclass=ModelMeta):
             print(f"Error updating entries: {e}")
         finally:
             connection_obj.close()
-
-    @classmethod
-    def add_m2m(cls, field_name, source_dict, target_dict):
-        """
-        Add a M2M relationship between two records (represented as dictionaries).
-        """
-        # Retrieve the ManyToManyField instance
-        m2m_field = getattr(cls, field_name)
-        m2m_field.add(cls, source_dict, target_dict)
-
-    @classmethod
-    def remove_m2m(cls, field_name, source_dict, target_dict):
-        """
-        Remove a M2M relationship between two records (represented as dictionaries).
-        """
-        # Retrieve the ManyToManyField instance
-        m2m_field = getattr(cls, field_name)
-        m2m_field.remove(cls, source_dict, target_dict)
-
-    @classmethod
-    def get_m2m(cls, field_name, source_dict):
-        """
-        Retrieve all related records for a source record (represented as a dictionary).
-        """
-        # Retrieve the ManyToManyField instance
-        m2m_field = getattr(cls, field_name)
-        return m2m_field.all(cls, source_dict)
