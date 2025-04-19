@@ -19,6 +19,9 @@ class ModelMeta(type):
                 fields[attr_name] = attr_value
             elif isinstance(attr_value, ManyToManyField):
                 many_to_many[attr_name] = attr_value
+                if hasattr(attr_value, '__set_name__'):
+                    attr_value.__set_name__(None, attr_name)
+
         attrs["_fields"] = fields
         attrs["_many_to_many"] = many_to_many
         new_class = super().__new__(cls, name, bases, attrs)
@@ -35,21 +38,31 @@ class BaseModel(metaclass=ModelMeta):
     id = None # Initialize id attribute
 
     def __init__(self, **kwargs):
-        # Initialize all defined fields to None or their default
-        for field_name in self._fields:
-            setattr(self, field_name, None)
-        # Also initialize M2M fields (though they won't store simple values)
-        for field_name in self._many_to_many:
-             setattr(self, field_name, None) # Or perhaps an empty manager/list later
-
+        """
+        Initializes a model instance. Expects keyword arguments matching
+        the model's defined *non-relational* fields (plus 'id').
+        Relational fields (FK, O2O, M2M) are handled separately or via descriptors.
+        """
         # Assign provided keyword arguments to attributes
         for key, value in kwargs.items():
             if key == 'id':
                 self.id = value
-            elif key in self._fields or key in self._many_to_many:
-                setattr(self, key, value)
+            # Only set attributes for keys that are in _fields (non-relational or FK/O2O)
+            # This prevents overwriting M2M descriptors.
+            elif key in self._fields:
+                 setattr(self, key, value)
             else:
-                raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}' corresponding to a model field")
+                print(f"Warning: Ignoring unexpected keyword argument '{key}' for {self.__class__.__name__}")
+
+        # Ensure essential attributes like 'id' exist even if not in kwargs
+        if 'id' not in kwargs:
+            self.id = None
+        # Ensure field attributes exist, defaulting to None if not in kwargs
+        # This ensures attributes exist even if not provided in kwargs
+        for field_name in self._fields:
+            if not hasattr(self, field_name):
+                setattr(self, field_name, None)
+
 
     def __repr__(self):
         """Return a string representation of the model instance."""
@@ -60,25 +73,37 @@ class BaseModel(metaclass=ModelMeta):
     def as_dict(self):
         """Return a dictionary representation of the model instance."""
         data = {'id': self.id}
-        for field_name in self._fields:
-            # For ForeignKey/OneToOneField, store the related object's ID
-            field = self._fields[field_name]
+        # Handle regular fields and FK/O2O fields
+        for field_name, field in self._fields.items():
             if isinstance(field, (ForeignKey, OneToOneField)):
-                related_obj = getattr(self, field_name, None)
-                data[field_name + '_id'] = related_obj.id if related_obj and related_obj.id is not None else None
+                # For FK/O2O, store the related object's ID
+                # Check for the _id attribute first (set during loading)
+                fk_id_attr = field_name + '_id'
+                fk_id = getattr(self, fk_id_attr, None)
+                if fk_id is None:
+                    # Fallback: check if related object is loaded
+                    related_obj = getattr(self, field_name, None)
+                    if related_obj and related_obj.id is not None:
+                        fk_id = related_obj.id
+                data[fk_id_attr] = fk_id
             else:
+                # Regular field
                 data[field_name] = getattr(self, field_name, None)
-        
-        for field_name, m2m_field in self._many_to_many.items():
+
+        # Handle M2M fields
+        for field_name in self._many_to_many: # Iterate through field names
             # M2M relationships require the instance to have an ID
             if self.id is not None:
-                # Use the field's 'all' method to get related instances
-                # Pass self (the instance) to the 'all' method
                 try:
-                    # Assuming m2m_field.all returns a list of related instances
-                    related_instances = m2m_field.all(self.__class__, self)
-                    # Extract the IDs from the related instances
-                    data[field_name] = [instance.id for instance in related_instances if instance.id is not None]
+                    # Get the manager instance for this field on this specific object
+                    # Accessing self.<field_name> (e.g., self.courses) triggers the descriptor's __get__
+                    manager = getattr(self, field_name)
+
+                    # Call the manager's all() method, which returns a QuerySet
+                    related_queryset = manager.all()
+
+                    # Extract the IDs from the related instances in the QuerySet
+                    data[field_name] = [instance.id for instance in related_queryset if instance.id is not None]
                 except Exception as e:
                     # Handle potential errors during M2M fetch gracefully
                     print(f"Warning: Could not fetch M2M field '{field_name}' for {self}: {e}")
