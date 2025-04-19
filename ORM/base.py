@@ -68,7 +68,25 @@ class BaseModel(metaclass=ModelMeta):
                 data[field_name + '_id'] = related_obj.id if related_obj and related_obj.id is not None else None
             else:
                 data[field_name] = getattr(self, field_name, None)
-        # TODO: M2M fields are not included in this basic dict representation
+        
+        for field_name, m2m_field in self._many_to_many.items():
+            # M2M relationships require the instance to have an ID
+            if self.id is not None:
+                # Use the field's 'all' method to get related instances
+                # Pass self (the instance) to the 'all' method
+                try:
+                    # Assuming m2m_field.all returns a list of related instances
+                    related_instances = m2m_field.all(self.__class__, self)
+                    # Extract the IDs from the related instances
+                    data[field_name] = [instance.id for instance in related_instances if instance.id is not None]
+                except Exception as e:
+                    # Handle potential errors during M2M fetch gracefully
+                    print(f"Warning: Could not fetch M2M field '{field_name}' for {self}: {e}")
+                    data[field_name] = [] # Represent as empty list on error
+            else:
+                # If the instance isn't saved, it can't have M2M relations yet
+                data[field_name] = [] # Represent as empty list
+
         return data
 
     @classmethod
