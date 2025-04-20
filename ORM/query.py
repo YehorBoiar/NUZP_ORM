@@ -1,3 +1,7 @@
+"""
+Defines the QuerySet and Manager classes responsible for building
+and executing database queries based on model interactions.
+"""
 import sqlite3
 import re
 
@@ -342,15 +346,24 @@ class QuerySet:
 
 
 class Manager:
+    """
+    Provides the entry point for accessing QuerySet methods on a model class.
+    Acts as a descriptor to associate the Manager with a specific model.
+    Delegates attribute access to a new QuerySet instance for the model.
+    """
     def __get__(self, instance, owner):
+        """Descriptor __get__ method. Returns the Manager instance itself."""
         self.model = owner
         return self
 
     def __getattr__(self, attr):
+        """Delegates attribute access to a new QuerySet for the associated model."""
         return getattr(QuerySet(self.model), attr)
 
     def __getitem__(self, index):
+        """Allows slicing/indexing directly on the manager (e.g., Model.objects[0])."""
         return QuerySet(self.model)[index]
 
     def __iter__(self):
+        """Allows iterating directly on the manager (e.g., for user in User.objects)."""
         return QuerySet(self.model).__iter__()

@@ -48,14 +48,19 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-2. Download coverage package:
+2. Download coverage packages:
 ```bash
-python -m pip install coverage
+python -m pip install coverage interrogate
 ```
 
-3. Run coverage report
+3. Run coverage test report
 ```bash
 coverage run -m unittest discover -s tests -p 'test*.py'
 coverage report -m            # View summary in terminal
 coverage html                 # Generate detailed HTML report (view htmlcov/index.html)
+```
+
+4. Run coverage docs report
+```bash
+interroage -vv ORM/ -I # -I to not include __init__.py file
 ```

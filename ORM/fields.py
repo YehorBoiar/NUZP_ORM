@@ -1,3 +1,7 @@
+"""
+Defines relationship fields (ForeignKey, OneToOneField, ManyToManyField)
+and the manager for handling ManyToMany relationships.
+"""
 import sqlite3
 from ORM.datatypes import Field
 from ORM.query import QuerySet
@@ -165,23 +169,41 @@ class ManyToManyRelatedManager:
         return iter(self.all())
 
     def __repr__(self):
-        return f"<ManyToManyRelatedManager for {self.instance}>"
+        """Return a string representation of the manager."""
+        # Fetch related objects for representation using the 'all' method
+        related_objects = list(self.all()) # Convert QuerySet to list for repr
+        return f"<ManyToManyRelatedManager for {self.instance} -> {self.field.to.__name__}: {related_objects}>"
 
 
 # ====================================================
 # 2. Relationship Field Types
 # ====================================================
 
-class ManyToManyField:
-    def __init__(self, to, through=None):
+class ManyToManyField(Field):
+    """
+    Defines a many-to-many relationship between two models.
+
+    Requires a junction table to store the associations. This table can be
+    automatically generated or specified using the `through` argument.
+    """
+    def __init__(self, to, through=None, **kwargs):
+        """
+        Initializes the ManyToManyField.
+
+        Args:
+            to (class): The model class to which the relationship is established.
+            through (str, optional): The name of the intermediate junction table.
+                                     If None, a default name is generated.
+            **kwargs: Additional field options (inherited from Field, but typically not used).
+        """
         self.to = to  # Target model class
         self.through = through  # Optional custom junction table
         # Store the name this field is assigned to on the model
         self.name = None # Will be set by ModelMeta
 
     def __set_name__(self, owner, name):
-        # Called when the descriptor is assigned to the model class
-        self.name = name
+        """Called when the field is assigned to a model class attribute."""
+        self.name = name # Store the attribute name (e.g., 'courses')
 
     def __get__(self, instance, owner):
         """
@@ -206,8 +228,14 @@ class ForeignKey(Field):
     Implements a one-to-many relationship (the "many" side).
     In the database, we store the related object's id as an INTEGER.
     """
-
     def __init__(self, to, **kwargs):
+        """
+        Initializes the ForeignKey field.
+
+        Args:
+            to (class): The model class that this field references.
+            **kwargs: Additional field options (e.g., null, unique, default).
+        """
         self.to = to  # the target model class
         super().__init__("INTEGER", **kwargs)
 
@@ -217,7 +245,16 @@ class OneToOneField(ForeignKey):
     Implements a one-to-one relationship.
     This is just a ForeignKey with a UNIQUE constraint.
     """
-
     def __init__(self, to, **kwargs):
+        """
+        Initializes the OneToOneField.
+
+        Ensures the relationship is unique by setting unique=True.
+
+        Args:
+            to (class): The model class that this field references.
+            **kwargs: Additional field options (e.g., null, default).
+                      'unique' is always forced to True.
+        """
         kwargs.setdefault('unique', True)
         super().__init__(to, **kwargs)

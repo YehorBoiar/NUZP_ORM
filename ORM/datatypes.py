@@ -1,3 +1,7 @@
+"""
+Defines the basic data types (Field, CharField, IntegerField, DateTimeField)
+used for model fields and their corresponding SQL representation.
+"""
 class Field:
     """Represents a database field."""
     def __init__(self, db_type, null=True, unique=False, default=None, max_length=None):
@@ -14,6 +18,10 @@ class Field:
         self.max_length = max_length
 
     def get_db_type(self):
+        """
+        Returns the SQL data type string for this field, including constraints
+        like NOT NULL and UNIQUE based on the field's options.
+        """
         parts = [self.db_type]
         if not self.null:
             parts.append("NOT NULL")
@@ -32,6 +40,8 @@ class Field:
 
 
 class CharField(Field):
+    """Represents a character string field (VARCHAR) in the database."""
+    db_type = 'VARCHAR'
     def __init__(self, null=True, unique=False, default=None, max_length=None):
         """
         Initialize a character field.
@@ -45,6 +55,8 @@ class CharField(Field):
 
 
 class IntegerField(Field):
+    """Represents an integer field (INTEGER) in the database."""
+    db_type = 'INTEGER'
     def __init__(self, null=True, default=0, unique=False):
         """
         Initialize an integer field.
@@ -57,6 +69,8 @@ class IntegerField(Field):
         self.default = default
 
 class DateTimeField(Field):
+    """Represents a date/time field (DATETIME) in the database."""
+    db_type = 'DATETIME'
     def __init__(self, null=True, unique=False, default=None):
         """
         Initialize a datetime field.

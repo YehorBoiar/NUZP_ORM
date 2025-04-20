@@ -1,3 +1,7 @@
+"""
+Provides command-line utilities for managing database migrations,
+including generating, applying, and showing migration status.
+"""
 import sqlite3
 import os
 import sys
@@ -301,6 +305,10 @@ def show_migrations():
 
 
 def main():
+    """
+    Parses command-line arguments and executes the corresponding
+    migration command (generate, migrate, showmigrations).
+    """
     parser = argparse.ArgumentParser(
         description='ORM CLI for database management')
     parser.add_argument('command', choices=['generate', 'migrate', 'showmigrations'],

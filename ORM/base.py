@@ -1,3 +1,7 @@
+"""
+Defines the core components of the ORM, including the BaseModel, ModelMeta,
+and base database interaction methods like create_table, insert, delete, update.
+"""
 import os
 import sqlite3
 from ORM.fields import ForeignKey, OneToOneField, ManyToManyField
@@ -8,10 +12,13 @@ DB_PATH = "databases/main.sqlite3"
 
 
 class ModelMeta(type):
-    """
-    Metaclass to register model fields including relationships.
-    """
+    """Metaclass for ORM models."""
     def __new__(cls, name, bases, attrs):
+        """
+        Metaclass __new__ method.
+        Collects field definitions from class attributes, initializes
+        _fields and _many_to_many dictionaries, and sets the Manager.
+        """
         fields = {}
         many_to_many = {}
         for attr_name, attr_value in list(attrs.items()):
@@ -34,6 +41,11 @@ class ModelMeta(type):
 
 
 class BaseModel(metaclass=ModelMeta):
+    """
+    Base class for all ORM models. Provides core ORM functionality like
+    database interaction (CRUD), field handling, and instance representation.
+    Subclass this to define your application models.
+    """
     objects = Manager()
     id = None # Initialize id attribute
 
@@ -106,6 +118,11 @@ class BaseModel(metaclass=ModelMeta):
 
     @classmethod
     def create_table(cls):
+        """
+        Creates the database table for this model, including columns for
+        all defined fields and junction tables for ManyToManyFields.
+        Drops the table if it already exists before creating.
+        """
         if not os.path.exists('databases'):
             os.makedirs('databases')
 
@@ -288,6 +305,24 @@ class BaseModel(metaclass=ModelMeta):
 
     @classmethod
     def insert_entries(cls, entries):
+        """
+        Inserts multiple entries (rows) into the model's database table.
+
+        Args:
+            entries (list): A list of model instances or dictionaries
+                            representing the data to insert.
+
+        Returns:
+            list: The list of inserted entries (as model instances) with
+                  their assigned IDs updated.
+
+        Raises:
+            TypeError: If the input list contains mixed types or invalid types.
+            ValueError: If a dictionary entry is missing required fields or
+                        if a unique constraint (like OneToOne) is violated.
+            sqlite3.IntegrityError: If a database constraint (e.g., unique)
+                                    is violated during insertion.
+        """
         is_dict_input = cls._validate_insert_input(entries)
         if is_dict_input is None: # Handle case where entries list is empty
              print("No entries to insert.")
@@ -327,7 +362,25 @@ class BaseModel(metaclass=ModelMeta):
                 connection_obj.close()
 
     @classmethod
-    def delete_entries(cls, conditions, confirm=False):
+    def delete_entries(cls, conditions=None, confirm_delete_all=False):
+        """
+        Deletes entries from the model's table based on specified conditions.
+
+        Args:
+            conditions (dict, optional): A dictionary of field-value pairs
+                                         to filter which rows to delete.
+                                         Defaults to None (delete all).
+            confirm_delete_all (bool, optional): Must be set to True to allow
+                                                 deleting all entries when
+                                                 conditions is None. Defaults to False.
+
+        Returns:
+            int: The number of rows deleted.
+
+        Raises:
+            ValueError: If attempting to delete all entries without setting
+                        confirm_delete_all=True.
+        """
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
 
@@ -336,7 +389,7 @@ class BaseModel(metaclass=ModelMeta):
         cursor_obj.execute("PRAGMA foreign_keys = ON;")
 
         if not conditions:
-            if confirm or input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ").lower() == "yes":
+            if confirm_delete_all or input(f"Are you sure you want to delete ALL records from {cls.__name__}? (yes/no): ").lower() == "yes":
                 query = f"DELETE FROM {cls.__name__.lower()}"
                 cursor_obj.execute(query)
             else:
@@ -355,6 +408,22 @@ class BaseModel(metaclass=ModelMeta):
 
     @classmethod
     def replace_entries(cls, conditions, new_values):
+        """
+        Updates entries in the model's table that match the given conditions
+        with the new values provided.
+
+        Args:
+            conditions (dict): A dictionary of field-value pairs to filter
+                               which rows to update.
+            new_values (dict): A dictionary of field-value pairs representing
+                               the new data for the matched rows.
+
+        Returns:
+            int: The number of rows updated.
+
+        Raises:
+            ValueError: If conditions or new_values are empty or invalid.
+        """
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
         connection_obj = sqlite3.connect(DB_PATH)
