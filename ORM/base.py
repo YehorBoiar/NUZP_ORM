@@ -22,17 +22,18 @@ class ModelMeta(type):
         fields = {}
         many_to_many = {}
         for attr_name, attr_value in list(attrs.items()):
-            if isinstance(attr_value, Field):
-                fields[attr_name] = attr_value
-            elif isinstance(attr_value, ManyToManyField):
+            if isinstance(attr_value, ManyToManyField):
                 many_to_many[attr_name] = attr_value
                 if hasattr(attr_value, '__set_name__'):
                     attr_value.__set_name__(None, attr_name)
+            elif isinstance(attr_value, Field):
+                fields[attr_name] = attr_value
 
         attrs["_fields"] = fields
         attrs["_many_to_many"] = many_to_many
         new_class = super().__new__(cls, name, bases, attrs)
 
+        
         return new_class
 
 # ====================================================

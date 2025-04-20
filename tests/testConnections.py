@@ -108,8 +108,8 @@ class TestOneToOneRelationshipEdgeCases(unittest.TestCase):
         ContactInfo.create_table()
 
         # Skip confirmation prompt in tests
-        Customers.delete_entries({}, confirm=True)
-        ContactInfo.delete_entries({}, confirm=True)
+        Customers.delete_entries({}, confirm_delete_all=True)
+        ContactInfo.delete_entries({}, confirm_delete_all=True)
 
         # Reset sequences
         connection = sqlite3.connect(DB_PATH)
@@ -294,8 +294,8 @@ class TestM2MAsDictError(unittest.TestCase):
         Book.create_table()
 
     def setUp(self):
-        Author.delete_entries({}, confirm=True)
-        Book.delete_entries({}, confirm=True)
+        Author.delete_entries({}, confirm_delete_all=True)
+        Book.delete_entries({}, confirm_delete_all=True)
         # Clear junction table
         connection_obj = sqlite3.connect(DB_PATH)
         cursor_obj = connection_obj.cursor()
@@ -411,8 +411,8 @@ class TestForeignKeyFeatures(unittest.TestCase):
 
     def setUp(self):
         # Clear tables before each test
-        self.City.delete_entries({}, confirm=True) # Delete dependent table first
-        self.Country.delete_entries({}, confirm=True)
+        self.City.delete_entries({}, confirm_delete_all=True) # Delete dependent table first
+        self.Country.delete_entries({}, confirm_delete_all=True)
 
         connection = sqlite3.connect(DB_PATH)
         cursor = connection.cursor()
@@ -485,8 +485,8 @@ class TestManyToManyFieldFeatures(unittest.TestCase):
         except sqlite3.OperationalError: pass # Ignore if table doesn't exist yet
         connection_obj.commit() # Commit deletion before deleting main tables
 
-        self.Post.delete_entries({}, confirm=True) # Delete Post first if Tag has FKs to it (it doesn't here)
-        self.Tag.delete_entries({}, confirm=True)
+        self.Post.delete_entries({}, confirm_delete_all=True) # Delete Post first if Tag has FKs to it (it doesn't here)
+        self.Tag.delete_entries({}, confirm_delete_all=True)
 
         try:
             cursor_obj.execute("DELETE FROM sqlite_sequence WHERE name IN (?, ?, ?);",

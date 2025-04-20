@@ -49,8 +49,8 @@ class TestCreateTable(unittest.TestCase):
     def setUp(self):
         """Insert fresh data and reset sequence before each test."""
         # Delete from all tables used
-        Student.delete_entries({}, confirm=True)
-        Department.delete_entries({}, confirm=True)
+        Student.delete_entries({}, confirm_delete_all=True)
+        Department.delete_entries({}, confirm_delete_all=True)
 
         connection = sqlite3.connect(DB_PATH)
         cursor = connection.cursor()
@@ -280,7 +280,7 @@ class TestCreateTable(unittest.TestCase):
     
     def test_insert_model_instances(self):
         """Test inserting data using BaseModel instances and ID update."""
-        Student.delete_entries({}, confirm=True)
+        Student.delete_entries({}, confirm_delete_all=True)
 
         student1 = Student(name="Instance User1", degree="Physics")
         student2 = Student(name="Instance User2", degree="Chemistry")
@@ -308,7 +308,7 @@ class TestCreateTable(unittest.TestCase):
     def test_insert_mixed_types_raises_error(self):
         """Test that inserting a mix of dicts and instances raises TypeError."""
         # setUp inserted data, delete it for this specific test scenario
-        Student.delete_entries({}, confirm=True) # Clean slate
+        Student.delete_entries({}, confirm_delete_all=True) # Clean slate
         student_instance = Student(name="Test Instance", degree="Biology")
         student_dict = {"name": "Test Dict", "degree": "Geology"}
 
@@ -330,7 +330,7 @@ class TestCreateTable(unittest.TestCase):
         Course.create_table()
 
         # setUp inserted Student data, delete it for this specific test scenario
-        Student.delete_entries({}, confirm=True) # Clean slate for Student table
+        Student.delete_entries({}, confirm_delete_all=True) # Clean slate for Student table
         wrong_instance = Course(title="Introduction to Testing")
         student_instance = Student(name="Correct Student", degree="Testing")
 
