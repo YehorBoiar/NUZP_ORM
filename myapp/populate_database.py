@@ -32,30 +32,6 @@ if __name__ == "__main__":
     databases = Course.objects.get(title="Database Systems")
     ml = Course.objects.get(title="Machine Learning")
 
-    # Establish many-to-many relationships
-    # John takes CS Intro and Data Structures
-    Course.add_m2m('students', cs_intro, john)
-    Course.add_m2m('students', data_structures, john)
-
-    # Emma takes CS Intro, Data Structures, and Databases
-    Course.add_m2m('students', cs_intro, emma)
-    Course.add_m2m('students', data_structures, emma)
-    Course.add_m2m('students', databases, emma)
-
-    # Michael takes Data Structures and Machine Learning
-    Course.add_m2m('students', data_structures, michael)
-    Course.add_m2m('students', ml, michael)
-
-    # Sophia takes Databases and Machine Learning
-    Course.add_m2m('students', databases, sophia)
-    Course.add_m2m('students', ml, sophia)
-
-    # William takes all courses
-    Course.add_m2m('students', cs_intro, william)
-    Course.add_m2m('students', data_structures, william)
-    Course.add_m2m('students', databases, william)
-    Course.add_m2m('students', ml, william)
-
     print("Database populated successfully!")
 
     # Display course enrollment counts

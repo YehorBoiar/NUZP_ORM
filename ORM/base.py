@@ -69,9 +69,9 @@ class BaseModel(metaclass=ModelMeta):
     def __repr__(self):
         """Return a string representation of the model instance."""
         # Use the instance's ID if available, otherwise indicate it's unsaved
-        pk = self.id if self.id is not None else '(unsaved)'
-        return f"<{self.__class__.__name__}: {pk}>"
-
+        string = ", ".join(f"{k}={value!r}" for k, value in self.__dict__.items())
+        return f"<{self.__class__.__name__}: {string}>"
+    
     def as_dict(self):
         """Return a dictionary representation of the model instance."""
         data = {'id': self.id}
