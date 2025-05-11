@@ -33,7 +33,6 @@ class ModelMeta(type):
         attrs["_many_to_many"] = many_to_many
         new_class = super().__new__(cls, name, bases, attrs)
 
-        
         return new_class
 
 # ====================================================
@@ -48,7 +47,7 @@ class BaseModel(metaclass=ModelMeta):
     Subclass this to define your application models.
     """
     objects = Manager()
-    id = None # Initialize id attribute
+    id = None  # Initialize id attribute
 
     def __init__(self, **kwargs):
         """
@@ -69,9 +68,10 @@ class BaseModel(metaclass=ModelMeta):
     def __repr__(self):
         """Return a string representation of the model instance."""
         # Use the instance's ID if available, otherwise indicate it's unsaved
-        string = ", ".join(f"{k}={value!r}" for k, value in self.__dict__.items())
+        string = ", ".join(f"{k}={value!r}" for k,
+                           value in self.__dict__.items())
         return f"<{self.__class__.__name__}: {string}>"
-    
+
     def as_dict(self):
         """Return a dictionary representation of the model instance."""
         data = {'id': self.id}
@@ -82,11 +82,12 @@ class BaseModel(metaclass=ModelMeta):
                 # Check for the _id attribute first (set during loading)
                 fk_id_attr = field_name + '_id'
                 fk_id = getattr(self, fk_id_attr, None)
-                
-                if fk_id is None and hasattr(self, field_name): # Check fk_id is still None
+
+                # Check fk_id is still None
+                if fk_id is None and hasattr(self, field_name):
                     potential_related_obj = getattr(self, field_name)
                     if isinstance(potential_related_obj, field.to) and potential_related_obj.id is not None:
-                         fk_id = potential_related_obj.id
+                        fk_id = potential_related_obj.id
 
                 data[fk_id_attr] = fk_id
             else:
@@ -94,7 +95,7 @@ class BaseModel(metaclass=ModelMeta):
                 data[field_name] = getattr(self, field_name, None)
 
         # Handle M2M fields
-        for field_name in self._many_to_many: # Iterate through field names
+        for field_name in self._many_to_many:  # Iterate through field names
             # M2M relationships require the instance to have an ID
             if self.id is not None:
                 try:
@@ -106,14 +107,16 @@ class BaseModel(metaclass=ModelMeta):
                     related_queryset = manager.all()
 
                     # Extract the IDs from the related instances in the QuerySet
-                    data[field_name] = [instance.id for instance in related_queryset if instance.id is not None]
+                    data[field_name] = [
+                        instance.id for instance in related_queryset if instance.id is not None]
                 except Exception as e:
                     # Handle potential errors during M2M fetch gracefully
-                    print(f"Warning: Could not fetch M2M field '{field_name}' for {self}: {e}")
-                    data[field_name] = [] # Represent as empty list on error
+                    print(
+                        f"Warning: Could not fetch M2M field '{field_name}' for {self}: {e}")
+                    data[field_name] = []  # Represent as empty list on error
             else:
                 # If the instance isn't saved, it can't have M2M relations yet
-                data[field_name] = [] # Represent as empty list
+                data[field_name] = []  # Represent as empty list
 
         return data
 
@@ -163,20 +166,21 @@ class BaseModel(metaclass=ModelMeta):
     def _validate_insert_input(cls, entries) -> bool:
         """
         Validate the list of entries for insertion.
-        
+
         Returns True if entries are dictionaries, False if they are model instances.
         Raises TypeError if entries are neither dictionaries nor model instances.
         """
         if not entries:
             print("No entries provided to insert.")
-            return None, None # Indicate no processing needed
+            return None, None  # Indicate no processing needed
 
         first_entry = entries[0]
         is_dict_input = isinstance(first_entry, dict)
         is_model_instance_input = isinstance(first_entry, BaseModel)
 
         if not is_dict_input and not is_model_instance_input:
-             raise TypeError("Entries must be a list of dictionaries or BaseModel instances.")
+            raise TypeError(
+                "Entries must be a list of dictionaries or BaseModel instances.")
 
         # Check type consistency
         for entry in entries:
@@ -185,7 +189,8 @@ class BaseModel(metaclass=ModelMeta):
             if is_model_instance_input and not isinstance(entry, BaseModel):
                 raise TypeError("All entries must be BaseModel instances.")
             if is_model_instance_input and not isinstance(entry, cls):
-                 raise TypeError(f"All entries must be instances of {cls.__name__}")
+                raise TypeError(
+                    f"All entries must be instances of {cls.__name__}")
 
         return is_dict_input
 
@@ -216,12 +221,12 @@ class BaseModel(metaclass=ModelMeta):
                 if isinstance(raw_value, dict):
                     value = raw_value.get('id')
                 elif isinstance(raw_value, BaseModel):
-                     value = getattr(raw_value, 'id', None)
-                else: # Assume it's the ID
+                    value = getattr(raw_value, 'id', None)
+                else:  # Assume it's the ID
                     value = raw_value
             else:
                 value = raw_value
-        else: # is_model_instance_input
+        else:  # is_model_instance_input
             raw_value = getattr(entry, model_field_name, None)
             if isinstance(field, (ForeignKey, OneToOneField)):
                 value = getattr(raw_value, 'id', None) if raw_value else None
@@ -247,11 +252,13 @@ class BaseModel(metaclass=ModelMeta):
             fn: set() for fn, f in cls._fields.items() if isinstance(f, OneToOneField)
         }
 
-        for entry_index, entry in enumerate(entries): # Use enumerate for better error context
+        # Use enumerate for better error context
+        for entry_index, entry in enumerate(entries):
             row = []
             for model_field_name, db_field_name in zip(field_names_model, field_names_db):
                 field = cls._fields[model_field_name]
-                value = cls._extract_value_for_db(entry, model_field_name, field, is_dict_input)
+                value = cls._extract_value_for_db(
+                    entry, model_field_name, field, is_dict_input)
 
                 if isinstance(field, OneToOneField) and value is not None:
                     # 1. Check for duplicates within the current batch first
@@ -265,10 +272,12 @@ class BaseModel(metaclass=ModelMeta):
 
                     # 2. Check against the database (existing check)
                     try:
-                        cls._check_onetoone_constraint(cursor_obj, db_field_name, model_field_name, value)
+                        cls._check_onetoone_constraint(
+                            cursor_obj, db_field_name, model_field_name, value)
                     except ValueError as e:
                         # Add index context if database check fails
-                        raise ValueError(f"Error processing entry at index {entry_index}: {e}") from e
+                        raise ValueError(
+                            f"Error processing entry at index {entry_index}: {e}") from e
 
                 row.append(value)
             values.append(tuple(row))
@@ -284,25 +293,29 @@ class BaseModel(metaclass=ModelMeta):
             if is_dict_input:
                 # Use executemany for dictionary inputs (bulk insert)
                 cursor_obj.executemany(query, values_list)
-                print(f"Successfully inserted {len(values_list)} entries into {cls.__name__}")
+                print(
+                    f"Successfully inserted {len(values_list)} entries into {cls.__name__}")
             else:
                 # Insert instances one by one to get lastrowid
                 inserted_count = 0
                 for i, entry_instance in enumerate(entries):
-                    values_tuple = values_list[i] # Get the pre-processed values for this instance
+                    # Get the pre-processed values for this instance
+                    values_tuple = values_list[i]
                     cursor_obj.execute(query, values_tuple)
                     # Get the last inserted ID and update the instance
                     last_id = cursor_obj.lastrowid
                     entry_instance.id = last_id
                     inserted_count += 1
-                print(f"Successfully inserted {inserted_count} entries into {cls.__name__} and updated instance IDs.")
+                print(
+                    f"Successfully inserted {inserted_count} entries into {cls.__name__} and updated instance IDs.")
 
             connection_obj.commit()
 
         except Exception as e:
             connection_obj.rollback()
-            print(f"Error during insert into {cls.__name__}: {e}") # Log or print error
-            raise # Re-raise the exception after rollback
+            # Log or print error
+            print(f"Error during insert into {cls.__name__}: {e}")
+            raise  # Re-raise the exception after rollback
 
     @classmethod
     def insert_entries(cls, entries):
@@ -325,14 +338,14 @@ class BaseModel(metaclass=ModelMeta):
                                     is violated during insertion.
         """
         is_dict_input = cls._validate_insert_input(entries)
-        if is_dict_input is None: # Handle case where entries list is empty
-             print("No entries to insert.")
-             return
+        if is_dict_input is None:  # Handle case where entries list is empty
+            print("No entries to insert.")
+            return
 
         if not os.path.exists(DB_PATH):
             raise ValueError(f"Database for {cls.__name__} does not exist!")
 
-        connection_obj = None # Initialize to None for finally block
+        connection_obj = None  # Initialize to None for finally block
         try:
             connection_obj = sqlite3.connect(DB_PATH)
             cursor_obj = connection_obj.cursor()
@@ -346,7 +359,8 @@ class BaseModel(metaclass=ModelMeta):
             )
 
             # Pass entries list along with values_list to _execute_insert
-            cls._execute_insert(connection_obj, cursor_obj, query, entries, values_list, is_dict_input)
+            cls._execute_insert(connection_obj, cursor_obj,
+                                query, entries, values_list, is_dict_input)
 
         except Exception as e:
             # Catch potential errors during validation, SQL prep, or processing
@@ -354,8 +368,10 @@ class BaseModel(metaclass=ModelMeta):
                 try:
                     connection_obj.rollback()
                 except Exception as rb_e:
-                    print(f"Error during rollback: {rb_e}") # Log rollback error
-            print(f"Failed to insert entries into {cls.__name__}: {e}") # Log or print error
+                    # Log rollback error
+                    print(f"Error during rollback: {rb_e}")
+            # Log or print error
+            print(f"Failed to insert entries into {cls.__name__}: {e}")
             # Re-raise the original exception to signal failure
             raise
         finally:
@@ -445,8 +461,8 @@ class BaseModel(metaclass=ModelMeta):
         try:
             cursor_obj.execute(query, values)
             connection_obj.commit()
-            print(
-                f"Updated entries in {cls.__name__} where {conditions} with {new_values}")
+            # print(
+            #     f"Updated entries in {cls.__name__} where {conditions} with {new_values}")
         except Exception as e:
             print(f"Error updating entries: {e}")
             raise e
