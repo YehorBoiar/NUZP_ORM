@@ -49,6 +49,15 @@ class QuerySet:
         users = QuerySet(User).limit(10).offset(5).all()
     """
 
+    def __len__(self):
+        """
+        Returns the number of results in the QuerySet by executing the query.
+        This method is used to support len() on QuerySet instances.
+        Returns:
+            int: The number of results in the QuerySet.
+        """
+        return len(self._execute())
+
     def __init__(self, model, where_clause=None, parameters=None, order_clause=None, limit_val=None, offset_val=None):
         """
         Initializes a new QuerySet instance.
