@@ -64,3 +64,67 @@ coverage html                 # Generate detailed HTML report (view htmlcov/inde
 ```bash
 interroage -vv ORM/ -I # -I to not include __init__.py file
 ```
+
+
+```mermaid
+flowchart TD
+  subgraph Model_Definition_Layer["Model Definition Layer"]
+    UserModel["User-defined Models\n(e.g., User, Post)\n(inherits from BaseModel)"]
+    BaseModel["BaseModel"]
+    ModelMeta["ModelMeta\n(metaclass)"]
+    Fields["Fields\n(CharField, IntegerField, etc.)"]
+  end
+
+  subgraph Field_Descriptors["Field Types & Descriptors"]
+    CharField["CharField, IntegerField,\nDateTimeField, etc."]
+    ForeignKey["ForeignKey"]
+    OneToOneField["OneToOneField"]
+    ManyToManyField["ManyToManyField"]
+    Validation["Validation\n(null, unique, default)"]
+  end
+
+  subgraph Query_Engine["Query Engine"]
+    Manager["Model.objects\n(Manager)"]
+    QuerySet["QuerySet\n(filter, order_by, etc.)"]
+    Expressions["Search Expressions\n(__exact, __like, etc.)"]
+  end
+
+  subgraph Relationship_Management["Relationship Management"]
+    ForeignKeyRel["ForeignKey,\nOneToOneField"]
+    ManyToManyRel["ManyToManyField"]
+    M2MManager["ManyToManyRelatedManager"]
+  end
+
+  subgraph Migration_Manager["Migration Manager"]
+    MigrationScript["ORM/manager.py"]
+    MigrationCmds["Commands:\ngenerate, migrate,\nshowmigrations"]
+    MigrationTable["orm_migrations\n(DB Table)"]
+  end
+
+  %% Connections
+  UserModel --"inherits"--> BaseModel
+  BaseModel --"uses metaclass"--> ModelMeta
+  UserModel --"uses"--> Fields
+  Fields --"are descriptors"--> Field_Descriptors
+  Field_Descriptors --"performs"--> Validation
+
+  UserModel --"registered via"--> ModelMeta
+  ModelMeta --"registers to"--> Migration_Manager
+
+  UserModel --"has"--> Manager
+  Manager --"returns"--> QuerySet
+  QuerySet --"supports"--> Expressions
+
+  UserModel --"uses"--> Relationship_Management
+  Relationship_Management --"uses descriptors"--> Field_Descriptors
+  ForeignKey --"is a"--> ForeignKeyRel
+  OneToOneField --"is a"--> ForeignKeyRel
+  ManyToManyField --"is a"--> ManyToManyRel
+  ManyToManyField --"returns"--> M2MManager
+
+  Migration_Manager --"tracks in"--> MigrationTable
+
+  %% Legend
+  classDef heading fill:#f9f,stroke:#333,stroke-width:2px,color:#222;
+  class Model_Definition_Layer,Field_Descriptors,Query_Engine,Relationship_Management,Migration_Manager heading
+```
