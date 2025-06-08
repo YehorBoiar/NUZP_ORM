@@ -43,12 +43,15 @@ def find_models(project_root, models_folder='myapp'):
                     # Find model classes in the module
                     classes_found = False
                     for name, obj in inspect.getmembers(module):
-                        if inspect.isclass(obj):
-                            print(f"  Found class: {name}")
-                            if issubclass(obj, BaseModel) and obj != BaseModel:
-                                print(f"  --> {name} is a model!")
-                                models.append(obj)
-                                classes_found = True
+                        if (
+                            inspect.isclass(obj)
+                            and issubclass(obj, BaseModel)
+                            and obj != BaseModel
+                            and obj.__module__ == module.__name__ 
+                        ):
+                            print(f"  --> {name} is a model!")
+                            models.append(obj)
+                            classes_found = True
 
                     if not classes_found:
                         print(f"  No model classes found in {file_path}")
@@ -59,7 +62,6 @@ def find_models(project_root, models_folder='myapp'):
                     print(f"  Unexpected error with {module_path}: {e}")
 
     return models
-
 
 def generate_migrations(models):
     """Generate versioned migration files for all models."""

@@ -52,7 +52,7 @@ def run_demo():
 
     # 2. Create: Insert students and courses
     print("\n--- Inserting students and courses from CSV ---")
-    populate_from_csv("data/demo_data.csv")
+    populate_from_csv("myapp/data/demo_data.csv")
     wait()
 
     # 3. Read: Query students and courses
@@ -90,7 +90,7 @@ def run_demo():
 
     # 7. Querying with filters and lookups
     print("\n--- Querying with filters and lookups ---")
-    print("Students with id > 1:", [s.name for s in Student.objects.filter(id__gt=1)])
+    print("Students with id > 6:", [s.name for s in Student.objects.filter(id__gt=6)])
     print("Courses with 'Math' in title:", [c.title for c in Course.objects.filter(title__like="Math")])
     wait()
 
